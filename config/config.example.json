@@ -1,0 +1,11 @@
+{
+  "token": "YOUR_DISCORD_BOT_TOKEN",
+  "prefix": ".",
+  "lavalinkPassword": "youshallnotpass",
+  "lavalinkHost": "localhost",
+  "lavalinkPort": 2333,
+  "clientId": "YOUR_CLIENT_ID",
+  "username": "ExampleMusicBot",
+  "defaultSearchPlatform": "ytsearch",
+  "logLevel": "info"
+}
