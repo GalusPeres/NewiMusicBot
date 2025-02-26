@@ -1,6 +1,6 @@
 # NewiMusicBot
 
-NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js](https://discord.js.org/), and [Lavalink](https://github.com/freyacodes/Lavalink). It features a sleek progress bar display and interactive buttons for controlling music playback, making it a user-friendly and visually appealing bot for your Discord server.
+NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js](https://discord.js.org/), and [lavalink-client](https://github.com/Tomato6966/lavalink-client). It features a sleek progress bar display and interactive buttons for controlling music playback, making it a user-friendly and visually appealing bot for your Discord server.
 
 ## Table of Contents
 
@@ -40,7 +40,7 @@ NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js
 
 3. **Set up Lavalink:**
 
-   Follow the [Lavalink setup guide](https://github.com/freyacodes/Lavalink) to install and run a Lavalink server. Adjust the Lavalink settings in your configuration file accordingly.
+   Follow the [lavalink-client documentation](https://github.com/Tomato6966/lavalink-client) for configuration and usage details. Adjust the settings in your configuration file accordingly.
 
 ## Configuration
 
@@ -81,7 +81,7 @@ npm start
 The bot will log in to Discord and connect to your Lavalink server. Some key commands include:
 
 - **`.play [song/link]`**  
-  Plays a song or playlist. Use `.playm` (YouTube Music) or `.playyt` (YouTube) to force a specific platform.
+  Plays a song or playlist. Use `.playm` for YouTube Music or `.playyt` for YouTube search if you want to force a specific platform.
 
 - **`.pause` / `.playpause`**  
   Toggles pause/resume for the current track.
@@ -126,8 +126,7 @@ For this initial release, we are versioning as **0.1.0**. Releases are used to p
 
 2. **Draft a release on GitHub:**
    - Navigate to the "Releases" section of your GitHub repository.
-   - Click "Draft a new release".
-   - Select the tag `v0.1.0`, add release notes, and publish the release.
+   - Click "Draft a new release", select the tag `v0.1.0`, add release notes, and publish the release.
 
 ## Docker
 
