@@ -1,6 +1,6 @@
 # NewiMusicBot
 
-NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js](https://discord.js.org/), and [Lavalink](https://github.com/freyacodes/Lavalink). It supports music playback, queue management, interactive "Now Playing" controls, and more. This project is designed to be easily configurable and extensible.
+NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js](https://discord.js.org/), and [Lavalink](https://github.com/freyacodes/Lavalink). It features a sleek progress bar display and interactive buttons for controlling music playback, making it a user-friendly and visually appealing bot for your Discord server.
 
 ## Table of Contents
 
@@ -9,6 +9,7 @@ NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [Releases](#releases)
+- [Docker](#docker)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -16,9 +17,9 @@ NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js
 
 - **Music Playback:** Play individual tracks or entire playlists.
 - **Queue Management:** View, shuffle, and manage your playback queue.
-- **Interactive UI:** The bot posts a "Now Playing" embed with interactive buttons for controlling playback (e.g., previous, play/pause, skip, shuffle, stop).
-- **Dynamic Configuration:** Change settings such as the default search platform via Discord commands.
-- **Centralized Logging:** Configurable logging levels (debug, info, warn, error) to help you monitor and troubleshoot the bot.
+- **Interactive UI:** The bot posts a "Now Playing" embed with a visual progress bar and interactive buttons for controlling playback (previous, play/pause, skip, shuffle, stop).
+- **Dynamic Configuration:** Easily update settings (e.g., default search platform) via Discord commands.
+- **Centralized Logging:** Configurable logging levels (debug, info, warn, error) to assist in monitoring and troubleshooting the bot.
 
 ## Installation
 
@@ -31,7 +32,7 @@ NewiMusicBot is a feature-rich Discord music bot built with Node.js, [discord.js
 
 2. **Install dependencies:**
 
-   Make sure you have [Node.js](https://nodejs.org/) (v18+ recommended) installed.
+   Ensure you have [Node.js](https://nodejs.org/) (v18+ recommended) installed.
    
    ```bash
    npm install
@@ -61,23 +62,23 @@ Rename `config/config.example.json` to `config/config.json` and edit it with you
 
 - **token**: Your bot token from the [Discord Developer Portal](https://discord.com/developers/applications).
 - **prefix**: The command prefix you want to use (e.g., `.`).
-- **lavalinkPassword**: The password you set in your Lavalink server configuration.
+- **lavalinkPassword**: The password configured for your Lavalink server.
 - **lavalinkHost**: The hostname or IP of your Lavalink server (e.g., `localhost`).
 - **lavalinkPort**: The port your Lavalink server listens on (default is `2333`).
 - **clientId**: Your bot’s application/client ID from the Discord Developer Portal.
-- **username**: (Optional) A display name used internally or for logging.
+- **username**: A placeholder name for internal use (the actual bot name is managed in the Discord Developer Portal).
 - **defaultSearchPlatform**: Choose between `"ytsearch"` (YouTube) or `"ytmsearch"` (YouTube Music).
 - **logLevel**: Set to `debug`, `info`, `warn`, or `error` depending on how verbose you want the logs.
 
 ## Usage
 
-After configuring, run the bot:
+After configuring, start the bot:
 
 ```bash
 npm start
 ```
 
-The bot will log in to Discord and connect to your Lavalink server. Some key commands:
+The bot will log in to Discord and connect to your Lavalink server. Some key commands include:
 
 - **`.play [song/link]`**  
   Plays a song or playlist. Use `.playm` (YouTube Music) or `.playyt` (YouTube) to force a specific platform.
@@ -89,7 +90,7 @@ The bot will log in to Discord and connect to your Lavalink server. Some key com
   Skips the current track.
 
 - **`.seek [time]`**  
-  Seeks to a specific time in the current track (e.g., `2`, `3:20`, `1:00:00`).
+  Seeks to a specific time in the current track (e.g., `2`, `3:20`, or `1:00:00`).
 
 - **`.queue`**  
   Displays the current queue and track history.
@@ -114,17 +115,39 @@ The bot will log in to Discord and connect to your Lavalink server. Some key com
 
 ## Releases
 
-Releases are used to package stable versions of NewiMusicBot. Each release is tagged in Git and contains release notes that detail new features, bug fixes, or other changes.
+For this initial release, we are versioning as **0.1.0**. Releases are used to package stable versions of NewiMusicBot along with release notes detailing new features or bug fixes. To create a release locally:
 
-**To create a release:**
-1. Tag a commit:
+1. **Tag a commit:**
+
    ```bash
-   git tag -a v1.0.0 -m "Release version 1.0.0"
+   git tag -a v0.1.0 -m "Release version 0.1.0"
    git push origin --tags
    ```
-2. Create a release on GitHub:
-   - Go to the "Releases" section of your repository on GitHub.
-   - Click "Draft a new release", select the tag, add release notes, and publish the release.
+
+2. **Draft a release on GitHub:**
+   - Navigate to the "Releases" section of your GitHub repository.
+   - Click "Draft a new release".
+   - Select the tag `v0.1.0`, add release notes, and publish the release.
+
+## Docker
+
+A Docker image for NewiMusicBot is available on DockerHub. The current version in DockerHub is **0.1**.
+
+You can find it here: [DockerHub - NewiMusicBot](https://hub.docker.com/repository/docker/galusperes/newimusicbot/general)
+
+To build and run the Docker container locally:
+
+1. **Build the Docker image:**
+
+   ```bash
+   docker build -t newimusicbot:0.1.0 .
+   ```
+
+2. **Run the Docker container:**
+
+   ```bash
+   docker run -d --name newimusicbot newimusicbot:0.1.0
+   ```
 
 ## Contributing
 
