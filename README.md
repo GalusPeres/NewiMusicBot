@@ -131,11 +131,9 @@ For this initial release, we are versioning as **0.1.0**. Releases are used to p
 
 ## Docker
 
-A Docker image for NewiMusicBot is available on DockerHub. The current version in DockerHub is **0.1**.
+A Docker image for NewiMusicBot is available on DockerHub. The current Docker version is **0.1**.
 
-You can find it here: [DockerHub - NewiMusicBot](https://hub.docker.com/repository/docker/galusperes/newimusicbot/general)
-
-To build and run the Docker container locally:
+### Building and Running the Docker Image Locally
 
 1. **Build the Docker image:**
 
@@ -148,6 +146,30 @@ To build and run the Docker container locally:
    ```bash
    docker run -d --name newimusicbot newimusicbot:0.1.0
    ```
+
+### Pushing to DockerHub
+
+To push your Docker image to DockerHub:
+
+1. **Log in to DockerHub:**
+
+   ```bash
+   docker login
+   ```
+
+2. **Tag your image with your DockerHub repository name:**
+
+   ```bash
+   docker tag newimusicbot:0.1.0 galusperes/newimusicbot:0.1.0
+   ```
+
+3. **Push the image to DockerHub:**
+
+   ```bash
+   docker push galusperes/newimusicbot:0.1.0
+   ```
+
+You can view your Docker image on DockerHub here: [DockerHub - NewiMusicBot](https://hub.docker.com/repository/docker/galusperes/newimusicbot/general)
 
 ## Contributing
 
