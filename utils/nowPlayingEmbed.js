@@ -50,6 +50,20 @@ function buildProgressBar(current, total, barLength = 18) {
 }
 
 /**
+ * Truncates a string if it exceeds maxLength characters, appending '...'.
+ *
+ * @param {string} title - The full track title.
+ * @param {number} maxLength - Maximum allowed length before truncation.
+ * @returns {string} - Possibly shortened title.
+ */
+function truncateTitle(title, maxLength = 50) {
+  if (title.length > maxLength) {
+    return title.slice(0, maxLength - 3) + "...";
+  }
+  return title;
+}
+
+/**
  * Generates an embed displaying the currently playing track along with queue status.
  *
  * @param {Object} player - The Lavalink player instance.
@@ -62,28 +76,32 @@ export function generateNowPlayingEmbed(player) {
   const title = formatTrackTitle(track.info, track.requestedAsUrl || false);
   const currentTime = formatTime(player.position);
   const totalTime = formatTime(track.info.duration);
+
   // Build a progress line with current time, progress bar, and total time
   const progressLine = `\`${currentTime}\`  ${buildProgressBar(player.position, track.info.duration, 18)}  \`${totalTime}\``;
 
   const displayCount = 10;
   const upcomingCount = player.queue.tracks.length;
-  
+
   // Create a list of upcoming tracks with numbered entries
   const upcomingList = player.queue.tracks.slice(0, displayCount)
     .map((t, i) => {
       const indexStr = String(i + 1).padStart(2, "0");
-      return `\u2002\`${indexStr}\`\u2002${formatTrackTitle(t.info, t.requestedAsUrl || false)}`;
+      const fullTitle = formatTrackTitle(t.info, t.requestedAsUrl || false);
+      // Truncate if too long
+      const truncatedTitle = truncateTitle(fullTitle, 45);
+      return `\u2002\`${indexStr}\`\u2002\`${truncatedTitle}\``;
     })
     .join("\n");
-  
+
   let queueValue = upcomingList ? "\u200B" + upcomingList : "No additional tracks.";
-  
+
   // If more tracks exist, show how many remain
   if (upcomingCount > displayCount) {
     const remaining = upcomingCount - displayCount;
-    queueValue += `\n\u2002\u2004*... and \`${remaining}\` more track${remaining > 1 ? "s" : ""}.*`;
+    queueValue += `\n\u2002\u2004*… and \`${remaining}\` more track${remaining > 1 ? "s" : ""}.*`;
   }
-  
+
   // Determine the current status of the player
   const status = player.paused ? "Paused" : player.playing ? "Playing" : "Stopped";
   const prefix = config.prefix || ".";
