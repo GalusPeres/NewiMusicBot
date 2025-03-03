@@ -2,3 +2,5 @@ config/config.json
 commands/text.js
 commands/snake.js
 commands/tetris.js
+aggregate.js
+projekt_zusammenfassung.txt

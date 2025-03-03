@@ -18,8 +18,11 @@ export async function togglePlayPause(player) {
       player.pauseTimeout = null;
     }
     await player.resume();
+    // Reset paused position when resuming
+    player._pausedPosition = undefined;
   } else {
-    // If playing, pause and set a timeout to auto-stop after 20 minutes
+    // Store current position before pausing
+    player._pausedPosition = player.position;
     await player.pause();
     player.pauseTimeout = setTimeout(async () => {
       if (player.paused) {

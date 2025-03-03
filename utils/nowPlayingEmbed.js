@@ -73,12 +73,15 @@ export function generateNowPlayingEmbed(player) {
   const track = player.queue.current;
   if (!track) return null;
 
-  const title = formatTrackTitle(track.info, track.requestedAsUrl || false);
-  const currentTime = formatTime(player.position);
+  // Use paused position if available; otherwise, use the live position
+  const currentPosition = (player.paused && player._pausedPosition !== undefined)
+    ? player._pausedPosition
+    : player.position;
+  const currentTime = formatTime(currentPosition);
   const totalTime = formatTime(track.info.duration);
 
   // Build a progress line with current time, progress bar, and total time
-  const progressLine = `\`${currentTime}\`  ${buildProgressBar(player.position, track.info.duration, 18)}  \`${totalTime}\``;
+  const progressLine = `\`${currentTime}\`  ${buildProgressBar(currentPosition, track.info.duration, 18)}  \`${totalTime}\``;
 
   const displayCount = 10;
   const upcomingCount = player.queue.tracks.length;
@@ -88,7 +91,6 @@ export function generateNowPlayingEmbed(player) {
     .map((t, i) => {
       const indexStr = String(i + 1).padStart(2, "0");
       const fullTitle = formatTrackTitle(t.info, t.requestedAsUrl || false);
-      // Truncate if too long
       const truncatedTitle = truncateTitle(fullTitle, 45);
       return `\u2002\`${indexStr}\`\u2002\`${truncatedTitle}\``;
     })
@@ -110,12 +112,11 @@ export function generateNowPlayingEmbed(player) {
   // Build and return the embed
   const embed = new EmbedBuilder()
     .setColor("Green")
-    .setTitle(title)
+    .setTitle(formatTrackTitle(track.info, track.requestedAsUrl || false))
     .setDescription(progressLine)
     .addFields({ name: "Queue", value: queueValue })
     .setFooter({ text: footerText });
 
-  // If artwork is available, set it as the thumbnail
   if (track.info.artworkUrl) {
     embed.setThumbnail(track.info.artworkUrl);
   }
