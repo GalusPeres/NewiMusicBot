@@ -47,7 +47,7 @@ function buildQueueLines(player) {
     const indexStr = (i + 1).toString().padStart(2, "0");
     const rawTitle = formatTrackTitle(track.info, track.requestedAsUrl);
     const title = truncateTitle(rawTitle, 45);
-    lines.push(`\u2002\`${indexStr}\`\u2002\`${title}\``);
+    lines.push(`\u2002\`\u2002${indexStr}\`\u2002\`${title}\``);
   });
   return lines;
 }

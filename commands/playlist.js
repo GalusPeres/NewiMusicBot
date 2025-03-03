@@ -67,7 +67,60 @@ function buildEmbed(lines, pageNumber, totalPages, prefix) {
     });
 }
 
-// (Der Rest des Codes bleibt unverändert)
+// Persistent interaction handling: Register a global listener if not already registered.
+function registerPlaylistInteractionHandler(client) {
+    if (!client.activePlaylistMessagesHandlerRegistered) {
+      client.on("interactionCreate", async (interaction) => {
+        if (!interaction.isButton()) return;
+        const state = client.activePlaylistMessages.get(interaction.message.id);
+        if (!state) return;
+        let { pages, currentPage, player, pageSize } = state;
+        if (interaction.customId === "prevPage" && currentPage > 0) {
+          currentPage--;
+          logger.debug("Button prevPage pressed, new currentPage: " + currentPage);
+        } else if (
+          interaction.customId === "nextPage" &&
+          currentPage < pages.length - 1
+        ) {
+          currentPage++;
+          logger.debug("Button nextPage pressed, new currentPage: " + currentPage);
+        } else if (interaction.customId === "refreshPage") {
+          const allLines = buildPlaylistLines(player);
+          pages = chunkArray(allLines, pageSize);
+          const merged = getMergedPlaylist(player);
+          const currentIndex = merged.findIndex(
+            (track) => track === player.queue.current
+          );
+          currentPage = Math.floor(currentIndex / pageSize);
+          if (currentPage >= pages.length) currentPage = pages.length - 1;
+          logger.debug("Button refreshPage pressed, recalculated currentPage: " + currentPage);
+        }
+        state.currentPage = currentPage;
+        state.pages = pages;
+        client.activePlaylistMessages.set(interaction.message.id, state);
+        const newEmbed = buildEmbed(pages[currentPage], currentPage + 1, pages.length, client.config.prefix);
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("prevPage")
+            .setLabel("Previous")
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(currentPage === 0),
+          new ButtonBuilder()
+            .setCustomId("refreshPage")
+            .setLabel("Refresh")
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId("nextPage")
+            .setLabel("Next")
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(currentPage === pages.length - 1)
+        );
+        await interaction.update({ embeds: [newEmbed], components: [row] });
+      });
+      client.activePlaylistMessagesHandlerRegistered = true;
+      logger.debug("Registered persistent playlist interaction handler.");
+    }
+}
 
 export default {
   name: "playlist",
