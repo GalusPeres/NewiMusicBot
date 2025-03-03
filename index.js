@@ -150,6 +150,7 @@ client.once("ready", async () => {
   // Function to process end-of-queue events and reset player state
   const processQueueEnd = (player) => {
     logger.debug(`Processing queue end for Guild="${player.guildId}"`);
+    player.queue.previous = [];
     player.queue.tracks = [];
     if (player.nowPlayingCollector) {
       logger.debug(`Stopping collector for Guild="${player.guildId}"`);
