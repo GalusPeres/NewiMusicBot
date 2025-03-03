@@ -39,6 +39,7 @@ const client = new Client({
   ]
 });
 client.config = config;
+global.config = config;
 client.commands = new Collection();
 
 // Dynamically load command files from the "commands" folder
@@ -106,7 +107,7 @@ client.lavalink = new LavalinkManager({
     username: config.username
   },
   queueOptions: {
-    maxPreviousTracks: 25
+    maxPreviousTracks: 1000
   },
   playerOptions: {
     useUnresolvedData: false,

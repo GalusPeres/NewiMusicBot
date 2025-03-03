@@ -72,6 +72,9 @@ export async function performStop(player) {
     clearInterval(player.nowPlayingInterval);
     player.nowPlayingInterval = null;
   }
+
+  await player.setVolume(global.config.defaultVolume || 50, false);
+
   // Update the UI to show the "stopped" state
   if (player.nowPlayingMessage) {
     const stoppedEmbed = generateStoppedEmbed();

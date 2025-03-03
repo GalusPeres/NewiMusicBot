@@ -42,7 +42,8 @@ export default {
         selfDeaf: true
       });
       await player.connect();
-      await player.setVolume(50, false);
+      // Set volume to the configured defaultVolume, fallback to 50
+      await player.setVolume(client.config.defaultVolume || 50, false);
     }
     
     let result;

@@ -47,7 +47,8 @@ export default {
         textChannelId: message.channel.id,
         selfDeaf: true
       });
-      await player.setVolume(50, false);
+      // Set volume to the configured defaultVolume, fallback to 50
+      await player.setVolume(client.config.defaultVolume || 50, false);
     }
     if (!player.connected) {
       logger.debug(`[play] Guild="${message.guild.id}" - Connecting player.`);

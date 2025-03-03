@@ -106,7 +106,7 @@ export function generateNowPlayingEmbed(player) {
 
   // Determine the current status of the player
   const status = player.paused ? "Paused" : player.playing ? "Playing" : "Stopped";
-  const prefix = config.prefix || ".";
+  const prefix = global.config.prefix || ".";
   const footerText = `${status}  •  Use ${prefix}search <song> for multiple results, ${prefix}play <song> to play directly.`;
 
   // Build and return the embed
@@ -129,7 +129,7 @@ export function generateNowPlayingEmbed(player) {
  * @returns {EmbedBuilder} - The embed for stopped playback.
  */
 export function generateStoppedEmbed() {
-  const prefix = config.prefix || ".";
+  const prefix = global.config.prefix || ".";
   return new EmbedBuilder()
     .setTitle("Playback Stopped")
     .setColor("Red")
