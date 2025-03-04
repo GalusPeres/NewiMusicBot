@@ -13,7 +13,8 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  EmbedBuilder
+  EmbedBuilder,
+  PermissionsBitField
 } from "discord.js";
 import logger from "../utils/logger.js";
 
@@ -22,8 +23,8 @@ export default {
   description:
     "Change configuration: Use subcommands to update provider, prefix or default volume.",
   async execute(client, message, args) {
-    // Check if the user has administrator permissions
-    if (!message.member.permissions.has("ADMINISTRATOR")) {
+    // Check if the user has administrator permissions using the proper flag
+    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
       return message.reply("Administrator permissions are required to change configuration.");
     }
 
@@ -42,7 +43,7 @@ export default {
       return message.reply("Failed to load configuration.");
     }
 
-    // Erstelle die Map für die Provider-Anzeige
+    // Create the map for displaying provider information
     const searchDisplayMap = {
       "ytsearch": {
         name: "YouTube",
@@ -54,7 +55,7 @@ export default {
       }
     };
 
-    // Wenn keine Subcommand-Parameter angegeben wurden, zeige eine übersichtliche Seite
+    // If no subcommand parameters are provided, show an overview page
     if (!args[0]) {
       const currentProvider = config.defaultSearchPlatform || "ytsearch";
       const providerDisplay = searchDisplayMap[currentProvider] || { name: currentProvider, emoji: "" };
@@ -178,7 +179,7 @@ export default {
         try {
           await fs.writeFile(configPath, JSON.stringify(newConfig, null, 2));
           client.config = newConfig;
-          global.config = config;
+          global.config = newConfig;
           const newVal = newConfig.defaultSearchPlatform;
           const newDisplay = searchDisplayMap[newVal] || { name: newVal, emoji: "" };
 
