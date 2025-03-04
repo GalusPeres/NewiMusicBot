@@ -1,5 +1,5 @@
 // commands/info.js
-// Command to force refresh the "Now Playing" UI message in the channel
+// Command to force refresh the "Now Playing" UI in the channel.
 
 import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
 import logger from "../utils/logger.js";
@@ -13,15 +13,36 @@ export default {
     if (!player || !player.queue.current) {
       return message.reply("No track is currently playing.");
     }
-    // Delete the old UI message if it exists
-    if (player.nowPlayingMessage) {
-      try {
-        await player.nowPlayingMessage.delete();
-      } catch (_) { }
-      player.nowPlayingMessage = null;
+    // Prevent multiple UI refreshes at the same time.
+    if (player.uiRefreshing) {
+      const replyMessage = await message.reply("UI refresh already in progress.");
+      // Delete the reply message after 10 seconds.
+      setTimeout(() => {
+        replyMessage.delete().catch(error => {
+          logger.error("Failed to delete 'UI refresh already in progress.' message:", error);
+        });
+      }, 5000);
+      return;
     }
-    // Send a new UI message
-    await sendOrUpdateNowPlayingUI(player, message.channel);
-    logger.debug(`[info] Now Playing UI refreshed in Guild="${message.guild.id}"`);
+    player.uiRefreshing = true;
+    try {
+      // Delete the existing Now Playing message if it exists.
+      if (player.nowPlayingMessage) {
+        try {
+          await player.nowPlayingMessage.delete();
+        } catch (error) {
+          logger.warn("Failed to delete existing Now Playing message:", error);
+        }
+        player.nowPlayingMessage = null;
+      }
+      // Send a new Now Playing message.
+      await sendOrUpdateNowPlayingUI(player, message.channel);
+      logger.debug(`[info] Now Playing UI refreshed in Guild="${message.guild.id}"`);
+    } catch (error) {
+      logger.error("[info] Error refreshing UI:", error);
+      message.channel.send("There was an error refreshing the UI.");
+    } finally {
+      player.uiRefreshing = false;
+    }
   }
 };
