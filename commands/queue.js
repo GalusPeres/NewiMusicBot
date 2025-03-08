@@ -107,14 +107,14 @@ function registerQueueInteractionHandler(client) {
       state.currentPage = currentPage;
       state.pages = pages;
       client.activeQueueMessages.set(interaction.message.id, state);
-      const prefix = client.config.prefix; // Dynamisch verwenden
+      const prefix = client.config.prefix;
       const newEmbed = buildEmbed(pages[currentPage], currentPage + 1, pages.length, prefix);
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId("prevPage")
           .setLabel("Previous")
           .setStyle(ButtonStyle.Secondary)
-          .setDisabled(currentPage === 0),
+          .setDisabled(pages.length === 1 || currentPage === 0),
         new ButtonBuilder()
           .setCustomId("refreshPage")
           .setLabel("Refresh")
@@ -123,7 +123,7 @@ function registerQueueInteractionHandler(client) {
           .setCustomId("nextPage")
           .setLabel("Next")
           .setStyle(ButtonStyle.Secondary)
-          .setDisabled(currentPage === pages.length - 1)
+          .setDisabled(pages.length === 1 || currentPage === pages.length - 1)
       );
       await interaction.update({ embeds: [newEmbed], components: [row] });
     });
@@ -153,7 +153,7 @@ export default {
       } else if (target === 0) {
         targetIndex = historyCount;
       } else {
-        targetIndex = historyCount + target; // For positive numbers, no subtraction of 1.
+        targetIndex = historyCount + target;
       }
       if (targetIndex < 0 || targetIndex >= merged.length) {
         return message.reply("That track does not exist in the queue.");
@@ -170,7 +170,6 @@ export default {
       player.queue.current = newCurrent;
       player.queue.tracks = newUpcoming;
       await player.play({ clientTrack: newCurrent });
-      // Also update the display embed by sending a message.
       return message.channel.send(`Jumped to track number ${args[0]}.`);
     }
 
@@ -186,21 +185,16 @@ export default {
     let currentPage = Math.floor(targetLineIndex / pageSize);
     let pages = chunkArray(allLines, pageSize);
     if (currentPage >= pages.length) currentPage = pages.length - 1;
-    if (pages.length === 1) {
-      const prefix = client.config.prefix;
-      const singleEmbed = buildEmbed(pages[0], 1, 1, prefix);
-      await message.channel.send({ embeds: [singleEmbed] });
-      logger.debug(`[queue] Single-page queue displayed for Guild="${message.guild.id}"`);
-      return;
-    }
+    
+    // Statt frühzeitigem Return immer Buttons mitsenden – falls es nur eine Seite gibt, sind Previous und Next deaktiviert.
     const prefix = client.config.prefix;
-    let embed = buildEmbed(pages[currentPage], currentPage + 1, pages.length, prefix);
+    const embed = buildEmbed(pages[currentPage], currentPage + 1, pages.length, prefix);
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("prevPage")
         .setLabel("Previous")
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(currentPage === 0),
+        .setDisabled(pages.length === 1 || currentPage === 0),
       new ButtonBuilder()
         .setCustomId("refreshPage")
         .setLabel("Refresh")
@@ -209,16 +203,14 @@ export default {
         .setCustomId("nextPage")
         .setLabel("Next")
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(currentPage === pages.length - 1)
+        .setDisabled(pages.length === 1 || currentPage === pages.length - 1)
     );
     const queueMessage = await message.channel.send({
       embeds: [embed],
       components: [row]
     });
-    // Register persistent interaction handler.
     if (!client.activeQueueMessages) client.activeQueueMessages = new Map();
     registerQueueInteractionHandler(client);
-    // Save state for this message.
     client.activeQueueMessages.set(queueMessage.id, {
       player,
       pages,

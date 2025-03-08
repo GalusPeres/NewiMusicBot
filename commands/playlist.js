@@ -1,5 +1,5 @@
 // commands/playlist.js
-// Displays a merged playlist (history, current track, upcoming) in a paginated embed with sequential numbering.
+// Displays a merged playlist (history, current track, upcoming) in an paginated embed with sequential numbering.
 // You can use ".playlist 16" (or ".list 16") to jump to that track and play it.
 // In Jump Mode the target track is immediately played and the merged playlist remains in chronological order.
 // In Display Mode, the embed is shown with persistent navigation buttons.
@@ -169,21 +169,16 @@ export default {
     let currentPage = Math.floor(currentIndex / pageSize);
     let pages = chunkArray(allLines, pageSize);
     if (currentPage >= pages.length) currentPage = pages.length - 1;
-    if (pages.length === 1) {
-      const prefix = client.config.prefix;
-      const singleEmbed = buildEmbed(pages[0], 1, 1, prefix);
-      await message.channel.send({ embeds: [singleEmbed] });
-      logger.debug("Single-page playlist displayed.");
-      return;
-    }
+    
+    // Statt frühzeitigem Return senden wir immer Buttons – falls es nur eine Seite gibt, sind Previous und Next disabled.
     const prefix = client.config.prefix;
-    let embed = buildEmbed(pages[currentPage], currentPage + 1, pages.length, prefix);
+    const embed = buildEmbed(pages[currentPage], currentPage + 1, pages.length, prefix);
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("prevPage")
         .setLabel("Previous")
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(currentPage === 0),
+        .setDisabled(pages.length === 1 || currentPage === 0),
       new ButtonBuilder()
         .setCustomId("refreshPage")
         .setLabel("Refresh")
@@ -192,7 +187,7 @@ export default {
         .setCustomId("nextPage")
         .setLabel("Next")
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(currentPage === pages.length - 1)
+        .setDisabled(pages.length === 1 || currentPage === pages.length - 1)
     );
     const playlistMessage = await message.channel.send({
       embeds: [embed],
