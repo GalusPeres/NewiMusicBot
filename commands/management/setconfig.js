@@ -16,7 +16,7 @@ import {
   EmbedBuilder,
   PermissionsBitField
 } from "discord.js";
-import logger from "../utils/logger.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "setconfig",

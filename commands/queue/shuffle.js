@@ -1,8 +1,8 @@
 // commands/shuffle.js
 // Command to shuffle the current music queue randomly using the Fisher-Yates algorithm
 
-import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
-import logger from "../utils/logger.js";
+import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "shuffle",

@@ -1,9 +1,9 @@
 // commands/skip.js
 // Command to skip the current track
 
-import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
-import { performSkip } from "../utils/playerControls.js";
-import logger from "../utils/logger.js";
+import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
+import { performSkip } from "../../utils/playerControls.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "skip",

@@ -1,7 +1,7 @@
 // commands/speed.js
 // Command to change the playback speed using the Lavalink timescale filter
 
-import logger from "../utils/logger.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "speed",

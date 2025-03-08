@@ -5,8 +5,8 @@
 // In Display Mode, the embed is shown with persistent navigation buttons.
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
-import { formatTrackTitle } from "../utils/formatTrack.js";
-import logger from "../utils/logger.js";
+import { formatTrackTitle } from "../../utils/formatTrack.js";
+import logger from "../../utils/logger.js";
 
 // Helper: Truncate a string if it exceeds maxLength characters.
 function truncateTitle(title, maxLength = 45) {
@@ -134,7 +134,7 @@ function registerQueueInteractionHandler(client) {
 export default {
   name: "queue",
   description:
-    "Shows a merged queue with persistent pagination and a Refresh button. Use '.queue <number>' to jump to that track and play it.",
+    "Displays the merged queue with pagination; jump to a song by number.",
   async execute(client, message, args) {
     const player = client.lavalink.getPlayer(message.guild.id);
     if (!player || !player.queue.current) {

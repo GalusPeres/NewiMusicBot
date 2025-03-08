@@ -2,8 +2,8 @@
 // Clears the queue and history while keeping the current track playing (requires confirmation).
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
-import logger from "../utils/logger.js";
-import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
+import logger from "../../utils/logger.js";
+import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
 
 export default {
   name: "clear",

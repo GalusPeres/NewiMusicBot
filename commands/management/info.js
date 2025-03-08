@@ -1,8 +1,8 @@
 // commands/info.js
 // Command to force refresh the "Now Playing" UI in the channel.
 
-import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
-import logger from "../utils/logger.js";
+import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "info",

@@ -2,7 +2,7 @@
 // Command to set the playback volume (0-100, default: 50).
 // If no argument is provided, it shows the current volume and instructions.
 
-import logger from "../utils/logger.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "volume",

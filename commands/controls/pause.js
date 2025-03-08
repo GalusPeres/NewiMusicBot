@@ -1,8 +1,8 @@
 // commands/pause.js
 // Command to toggle pause/resume playback.
 
-import { togglePlayPause } from "../utils/playerControls.js";
-import logger from "../utils/logger.js";
+import { togglePlayPause } from "../../utils/playerControls.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "pause",

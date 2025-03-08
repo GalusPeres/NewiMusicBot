@@ -1,12 +1,12 @@
 // commands/seek.js
 // Command to seek to a specific time in the current track
 
-import { updateNowPlaying } from "../utils/updateNowPlaying.js";
-import logger from "../utils/logger.js";
+import { updateNowPlaying } from "../../utils/updateNowPlaying.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "seek",
-  description: "Seeks to a specific time in the current track. Usage: .seek 2, .seek 3:20, or .seek 1:00:00",
+  description: "Jumps to a specific point in the current track. Usage: .seek 2, .seek 3:20, or .seek 1:00:00",
   async execute(client, message, args) {
     const player = client.lavalink.getPlayer(message.guild.id);
     if (!player || !player.queue.current) {

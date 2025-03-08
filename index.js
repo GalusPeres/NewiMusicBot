@@ -40,24 +40,60 @@ const client = new Client({
 });
 client.config = config;
 global.config = config;
+
+// Collection für alle Commands
 client.commands = new Collection();
 
-// Dynamically load command files from the "commands" folder
+/**
+ * DYNAMISCHES LADEN DER COMMANDS
+ * 1) Unterordner durchgehen → darin enthaltene JS-Dateien laden und "category" = Unterordnername
+ * 2) Dateien direkt im "commands"-Ordner → "category" = "Uncategorized"
+ */
 const commandsPath = join(__dirname, "commands");
-const commandFiles = (await fs.readdir(commandsPath)).filter(file => file.endsWith(".js"));
-for (const file of commandFiles) {
-  const fileUrl = pathToFileURL(join(commandsPath, file)).href;
-  const commandModule = await import(fileUrl);
-  const command = commandModule.default || commandModule;
-  if (command.name) {
-    client.commands.set(command.name, command);
-    logger.debug(`Command "${command.name}" loaded.`);
-  } else {
-    logger.warn(`Command file "${file}" is missing a valid "name" property.`);
+
+// 1) Unterordner ermitteln
+const dirEntries = await fs.readdir(commandsPath, { withFileTypes: true });
+const folderNames = dirEntries.filter(dirent => dirent.isDirectory()).map(dirent => dirent.name);
+
+for (const folder of folderNames) {
+  const folderPath = join(commandsPath, folder);
+  const commandFiles = (await fs.readdir(folderPath)).filter(file => file.endsWith(".js"));
+  
+  for (const file of commandFiles) {
+    const fileUrl = pathToFileURL(join(folderPath, file)).href;
+    const { default: command } = await import(fileUrl);
+
+    if (command && command.name) {
+      // Automatisch die Kategorie aus dem Ordnernamen setzen
+      command.category = folder;
+      client.commands.set(command.name, command);
+      logger.debug(`Command "${command.name}" loaded from category "${folder}".`);
+    } else {
+      logger.warn(`Command file "${file}" in folder "${folder}" is missing a valid "name" property.`);
+    }
   }
 }
 
-// Listen for incoming messages
+// 2) Dateien im Root-Verzeichnis von "commands" (ohne Unterordner)
+const rootCommandFiles = dirEntries
+  .filter(dirent => dirent.isFile() && dirent.name.endsWith(".js"))
+  .map(dirent => dirent.name);
+
+for (const file of rootCommandFiles) {
+  const fileUrl = pathToFileURL(join(commandsPath, file)).href;
+  const { default: command } = await import(fileUrl);
+  
+  if (command && command.name) {
+    // Falls gewünscht: Standard-Kategorie, z. B. "Uncategorized"
+    command.category = "Uncategorized";
+    client.commands.set(command.name, command);
+    logger.debug(`Command "${command.name}" loaded from root folder as "Uncategorized".`);
+  } else {
+    logger.warn(`Command file "${file}" in root commands folder is missing a valid "name" property.`);
+  }
+}
+
+// MESSAGE CREATE LISTENER
 client.on("messageCreate", async (message) => {
   // Ignore messages from bots or messages outside guilds
   if (message.author.bot || !message.guild) return;

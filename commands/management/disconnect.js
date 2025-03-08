@@ -3,8 +3,8 @@
 // This command will also stop playback and clear the queue.
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
-import { performStop } from "../utils/playerControls.js";
-import logger from "../utils/logger.js";
+import { performStop } from "../../utils/playerControls.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "disconnect",

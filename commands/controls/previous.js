@@ -1,13 +1,13 @@
 // commands/previous.js
 // Command to play the previous track from history without clearing the queue
 
-import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
-import logger from "../utils/logger.js";
+import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "previous",
   aliases: ["prev"],
-  description: "Plays the previous track from history without clearing the rest of the queue.",
+  description: "lays the previous song from history.",
   async execute(client, message, args) {
     const player = client.lavalink.getPlayer(message.guild.id);
     if (!player || !player.queue.current) {

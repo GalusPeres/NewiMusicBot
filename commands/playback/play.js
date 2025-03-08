@@ -1,9 +1,9 @@
 // commands/play.js
 // Command to play a track or playlist based on a query or URL
 
-import { formatTrackTitle } from "../utils/formatTrack.js";
-import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
-import logger from "../utils/logger.js";
+import { formatTrackTitle } from "../../utils/formatTrack.js";
+import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "play",

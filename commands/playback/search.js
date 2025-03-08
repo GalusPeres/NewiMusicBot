@@ -2,8 +2,8 @@
 // Command to search for multiple tracks and let the user select one via a dropdown menu
 
 import { ActionRowBuilder, StringSelectMenuBuilder } from "discord.js";
-import { sendOrUpdateNowPlayingUI } from "../utils/nowPlayingManager.js";
-import logger from "../utils/logger.js";
+import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
+import logger from "../../utils/logger.js";
 
 export default {
   name: "search",
