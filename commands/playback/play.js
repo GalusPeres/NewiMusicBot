@@ -1,5 +1,8 @@
-// commands/play.js
-// Command to play a track or playlist based on a query or URL
+// commands/playback/play.js
+// Command to play a track or playlist based on a query or URL.
+// Uses .play, .playm (for YouTube Music search), or .playyt (for YouTube search).
+// If the bot is stopped and in a different voice channel than the user,
+// it will disconnect the old player, wait briefly, and then reconnect in the user's channel.
 
 import { formatTrackTitle } from "../../utils/formatTrack.js";
 import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
@@ -25,20 +28,32 @@ export default {
       return message.reply("Please provide a song name or link.");
     }
     
-    // Determine if the command alias forces a specific search mode
+    // Determine if a specific search mode is forced by the command alias
     const invoked = message.content.slice(client.config.prefix.length).split(" ")[0].toLowerCase();
     let forcedMode = null;
     if (invoked === "playm") forcedMode = "ytmsearch";
     else if (invoked === "playyt") forcedMode = "ytsearch";
 
-    // Determine if the query is a URL and adjust the search mode accordingly
+    // Check if the query is a URL and adjust the search mode accordingly
     const isUrl = /^https?:\/\//.test(query);
     const isSpotify = isUrl && query.includes("spotify.com");
     const defaultMode = isUrl ? (isSpotify ? "ytmsearch" : "ytsearch") : (forcedMode || client.config.defaultSearchPlatform);
     const finalQuery = isUrl ? query : `${defaultMode}:${query}`;
     
-    // Retrieve or create the player instance for the guild
+    // Retrieve or create the player for this guild
     let player = client.lavalink.getPlayer(message.guild.id);
+    
+    // If a player exists, is connected but in a different voice channel,
+    // and is stopped (neither playing nor paused), disconnect it and remove it.
+    if (player && player.connected && player.voiceChannelId !== voiceChannel.id && !player.playing && !player.paused) {
+      logger.debug(`[play] Guild="${message.guild.id}" - Player is in a different voice channel and stopped. Reconnecting to user's channel.`);
+      await player.disconnect();
+      client.lavalink.players.delete(message.guild.id);
+      // Wait briefly to allow Discord to update the voice state
+      await new Promise(resolve => setTimeout(resolve, 500));
+      player = null;
+    }
+    
     if (!player) {
       logger.debug(`[play] Guild="${message.guild.id}" - Creating new player.`);
       player = await client.lavalink.createPlayer({
@@ -90,7 +105,7 @@ export default {
       logger.debug(`[play] Guild="${message.guild.id}" - Starting playback.`);
       await player.play();
     }
-    // Update the Now Playing UI
+    // Update the "Now Playing" UI
     await sendOrUpdateNowPlayingUI(player, message.channel);
   }
 };

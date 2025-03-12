@@ -115,10 +115,11 @@ export async function sendOrUpdateNowPlayingUI(player, channel) {
               .setLabel("Cancel")
               .setStyle(ButtonStyle.Secondary)
           );
-          await player.nowPlayingMessage.edit({
-            components: [confirmRow]
-          });
-
+          if (player.nowPlayingMessage) {
+            await player.nowPlayingMessage.edit({
+              components: [confirmRow]
+            });
+          }
           // Set a timeout to restore the original UI after 10 seconds
           const timeoutId = setTimeout(async () => {
             await restoreOriginalUI();
@@ -216,19 +217,23 @@ export async function sendOrUpdateNowPlayingUI(player, channel) {
         const embed = generateNowPlayingEmbed(player);
         if (!embed) return;
         const buttonRow = createButtonRow(player);
-        await player.nowPlayingMessage.edit({
-          content: null,
-          embeds: [embed],
-          components: [buttonRow]
-        });
+        if (player.nowPlayingMessage) {
+          await player.nowPlayingMessage.edit({
+            content: null,
+            embeds: [embed],
+            components: [buttonRow]
+          });
+        }
       }
     } else {
       // Update existing message with new embed and buttons
       const buttonRow = createButtonRow(player);
-      await player.nowPlayingMessage.edit({
-        embeds: [embed],
-        components: [buttonRow]
-      }).catch(() => {});
+      if (player.nowPlayingMessage) {
+        await player.nowPlayingMessage.edit({
+          embeds: [embed],
+          components: [buttonRow]
+        }).catch(() => {});
+      }
     }
   } catch (err) {
     logger.error("[nowPlayingManager] Error in sendOrUpdateNowPlayingUI:", err);

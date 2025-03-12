@@ -1,5 +1,8 @@
-// commands/search.js
-// Command to search for multiple tracks and let the user select one via a dropdown menu
+// commands/playback/search.js
+// Command to search for multiple tracks and let the user select one via a dropdown menu.
+// Uses .search, .searchm (for YouTube Music search), or .searchyt (for YouTube search).
+// If the player is stopped and in a different voice channel than the user,
+// it will disconnect the old player, wait briefly, and then reconnect in the user's channel.
 
 import { ActionRowBuilder, StringSelectMenuBuilder } from "discord.js";
 import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
@@ -10,7 +13,6 @@ export default {
   aliases: ["searchm", "searchyt"],
   description: "Search for multiple tracks. Use .searchm for YouTube Music search, .searchyt for YouTube search. Default is used otherwise.",
   async execute(client, message, args) {
-    // Ensure Lavalink is ready before searching
     if (!client.lavalinkReady) {
       return message.reply("Lavalink is not initialized yet. Please wait a moment.");
     }
@@ -23,17 +25,26 @@ export default {
       return message.reply("Please provide a search term!");
     }
 
-    // Determine search mode based on command alias
+    // Determine if a specific search mode is forced by the command alias
     const invoked = message.content.slice(client.config.prefix.length).split(" ")[0].toLowerCase();
     let forcedMode = null;
     if (invoked === "searchm") forcedMode = "ytmsearch";
     else if (invoked === "searchyt") forcedMode = "ytsearch";
 
-    // Use forced mode or fallback to default search platform from config
     const searchMode = forcedMode || client.config.defaultSearchPlatform;
     
-    // Retrieve or create the player for this guild
+    // If a player exists, is connected but in a different voice channel than the user,
+    // and is stopped (neither playing nor paused), disconnect it and remove it.
     let player = client.lavalink.getPlayer(message.guild.id);
+    if (player && player.connected && player.voiceChannelId !== voiceChannel.id && !player.playing && !player.paused) {
+      logger.debug(`[search] Guild="${message.guild.id}" - Player is in a different voice channel and stopped. Reconnecting to user's channel.`);
+      await player.disconnect();
+      client.lavalink.players.delete(message.guild.id);
+      // Wait briefly to allow the voice state to update
+      await new Promise(resolve => setTimeout(resolve, 500));
+      player = null;
+    }
+    
     if (!player) {
       player = await client.lavalink.createPlayer({
         guildId: message.guild.id,
@@ -42,13 +53,11 @@ export default {
         selfDeaf: true
       });
       await player.connect();
-      // Set volume to the configured defaultVolume, fallback to 50
       await player.setVolume(client.config.defaultVolume || 50, false);
     }
     
     let result;
     try {
-      // Perform the search using Lavalink
       result = await player.search({ query: `${searchMode}:${query}`, source: searchMode }, message.author);
     } catch (error) {
       logger.error("[search] Search error:", error);
@@ -58,7 +67,7 @@ export default {
       return message.reply("No tracks found for that query.");
     }
     
-    // Limit results to the first 25 tracks
+    // Limit results to a maximum of 25 tracks
     const tracks = result.tracks.slice(0, 25);
     const options = tracks.map((track, index) => ({
       label: track.info.title.slice(0, 100),
@@ -66,20 +75,19 @@ export default {
       value: String(index)
     }));
     
-    // Build a dropdown menu using Discord's select menu
+    // Create a dropdown menu for track selection
     const menu = new StringSelectMenuBuilder()
       .setCustomId("searchSelect")
       .setPlaceholder("Select a track")
       .addOptions(options);
     const row = new ActionRowBuilder().addComponents(menu);
     
-    // Send the menu to the channel
     const selectMsg = await message.channel.send({
       content: "Select a track:",
       components: [row]
     });
     
-    // Create a collector to handle the user's selection for 30 seconds
+    // Collect the user's selection (30-second timeout)
     const collector = selectMsg.createMessageComponentCollector({ time: 30000 });
     collector.on("collect", async (interaction) => {
       if (!interaction.isStringSelectMenu() || interaction.customId !== "searchSelect") return;
@@ -89,7 +97,7 @@ export default {
         await interaction.reply({ content: "Invalid selection.", ephemeral: true });
         return;
       }
-      // Add the chosen track to the player's queue
+      // Add the selected track to the player's queue
       player.queue.add(chosenTrack);
       if (!player.playing && !player.paused) {
         await player.play();
