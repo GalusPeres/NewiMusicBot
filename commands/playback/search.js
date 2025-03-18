@@ -1,8 +1,8 @@
 // commands/playback/search.js
 // Command to search for multiple tracks and let the user select one via a dropdown menu.
 // Uses .search, .searchm (for YouTube Music search), or .searchyt (for YouTube search).
-// If the player is stopped and in a different voice channel than the user,
-// it will disconnect the old player, wait briefly, and then reconnect in the user's channel.
+// If the bot is idle (stopped) and in a different voice channel than the user,
+// it will disconnect the old player (and remove it) before reconnecting in the user's channel.
 
 import { ActionRowBuilder, StringSelectMenuBuilder } from "discord.js";
 import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
@@ -30,17 +30,28 @@ export default {
     let forcedMode = null;
     if (invoked === "searchm") forcedMode = "ytmsearch";
     else if (invoked === "searchyt") forcedMode = "ytsearch";
-
+    
     const searchMode = forcedMode || client.config.defaultSearchPlatform;
     
-    // If a player exists, is connected but in a different voice channel than the user,
-    // and is stopped (neither playing nor paused), disconnect it and remove it.
+    // Retrieve the player for this guild
     let player = client.lavalink.getPlayer(message.guild.id);
-    if (player && player.connected && player.voiceChannelId !== voiceChannel.id && !player.playing && !player.paused) {
-      logger.debug(`[search] Guild="${message.guild.id}" - Player is in a different voice channel and stopped. Reconnecting to user's channel.`);
+    // Robust check:
+    // If a player exists, is connected, but is in a different voice channel,
+    // and is idle (neither playing nor paused, and no current track or empty queue),
+    // then disconnect and remove it.
+    if (
+      player &&
+      player.connected &&
+      player.voiceChannelId !== voiceChannel.id &&
+      (!player.playing &&
+       !player.paused &&
+       (!player.queue.current || player.queue.tracks.length === 0))
+    ) {
+      logger.debug(
+        `[search] Guild="${message.guild.id}" - Player is idle in a different voice channel. Reconnecting to user's channel.`
+      );
       await player.disconnect();
       client.lavalink.players.delete(message.guild.id);
-      // Wait briefly to allow the voice state to update
       await new Promise(resolve => setTimeout(resolve, 500));
       player = null;
     }

@@ -1,8 +1,8 @@
 // commands/playback/play.js
 // Command to play a track or playlist based on a query or URL.
 // Uses .play, .playm (for YouTube Music search), or .playyt (for YouTube search).
-// If the bot is stopped and in a different voice channel than the user,
-// it will disconnect the old player, wait briefly, and then reconnect in the user's channel.
+// If the bot is stopped (idle) and in a different voice channel than the user,
+// it will disconnect the old player (and remove it) before connecting in the user's channel.
 
 import { formatTrackTitle } from "../../utils/formatTrack.js";
 import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
@@ -43,10 +43,21 @@ export default {
     // Retrieve or create the player for this guild
     let player = client.lavalink.getPlayer(message.guild.id);
     
-    // If a player exists, is connected but in a different voice channel,
-    // and is stopped (neither playing nor paused), disconnect it and remove it.
-    if (player && player.connected && player.voiceChannelId !== voiceChannel.id && !player.playing && !player.paused) {
-      logger.debug(`[play] Guild="${message.guild.id}" - Player is in a different voice channel and stopped. Reconnecting to user's channel.`);
+    // Robust check:
+    // If a player exists, is connected but is in a different voice channel,
+    // and is idle (neither playing nor paused, and no current track or empty queue),
+    // then disconnect and remove it.
+    if (
+      player &&
+      player.connected &&
+      player.voiceChannelId !== voiceChannel.id &&
+      (!player.playing &&
+       !player.paused &&
+       (!player.queue.current || player.queue.tracks.length === 0))
+    ) {
+      logger.debug(
+        `[play] Guild="${message.guild.id}" - Player is idle in a different voice channel. Reconnecting to user's channel.`
+      );
       await player.disconnect();
       client.lavalink.players.delete(message.guild.id);
       // Wait briefly to allow Discord to update the voice state
