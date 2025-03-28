@@ -43,21 +43,17 @@ export default {
     // Retrieve or create the player for this guild
     let player = client.lavalink.getPlayer(message.guild.id);
     
-    // Robust check:
-    // If a player exists, is connected but is in a different voice channel,
-    // and is idle (neither playing nor paused, and no current track or empty queue),
-    // then disconnect and remove it.
+    // Modified robust check:
+    // If a player exists, is connected, is in a different voice channel,
+    // and is NOT active (not playing and not paused), then disconnect and remove it.
     if (
       player &&
       player.connected &&
       player.voiceChannelId !== voiceChannel.id &&
-      (!player.playing &&
-       !player.paused &&
-       (!player.queue.current || player.queue.tracks.length === 0))
+      !player.playing &&
+      !player.paused
     ) {
-      logger.debug(
-        `[play] Guild="${message.guild.id}" - Player is idle in a different voice channel. Reconnecting to user's channel.`
-      );
+      logger.debug(`[play] Guild="${message.guild.id}" - Player is idle in a different voice channel. Reconnecting to user's channel.`);
       await player.disconnect();
       client.lavalink.players.delete(message.guild.id);
       // Wait briefly to allow Discord to update the voice state
