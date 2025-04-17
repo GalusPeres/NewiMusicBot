@@ -1,5 +1,5 @@
 // index.js
-// Main entry point for NewiMusicBot — English comments only.
+// Main entry point for NewiMusicBot.
 
 import { Client, Collection, GatewayIntentBits } from "discord.js";
 import { LavalinkManager } from "lavalink-client";

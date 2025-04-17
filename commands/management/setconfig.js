@@ -31,7 +31,7 @@ export default {
     // Determine the path to the configuration file
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
-    const configPath = join(__dirname, "..", "config", "config.json");
+    const configPath = join(__dirname, "..", "..", "config", "config.json");
 
     // Load current configuration from file
     let config;
