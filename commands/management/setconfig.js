@@ -17,17 +17,17 @@ export default {
   name: "setconfig",
   description: "Change configuration: update provider, prefix, or default volume.",
   async execute(client, message, args) {
-    // English: ensure user has Administrator permission
+    // Ensure user has Administrator permission
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
       return message.reply("Administrator permissions are required to change configuration.");
     }
 
-    // English: resolve the path to config.json by going two levels up to project root
+    // Resolve the path to config.json by going two levels up to project root
     const __filename = fileURLToPath(import.meta.url);
     const __dirname  = dirname(__filename);
     const configPath = join(__dirname, "..", "..", "config", "config.json");
 
-    // English: load the current configuration from file
+    // Load the current configuration from file
     let config;
     try {
       const data = await fs.readFile(configPath, "utf-8");
@@ -37,11 +37,11 @@ export default {
       return message.reply("Failed to load configuration.");
     }
 
-    // English: get the dynamic prefix currently in use
+    // Get the dynamic prefix currently in use
     const prefix = client.config.prefix || ".";
 
     // ────────────────────────────────────────────────────────────────────
-    // English: if no subcommand provided, show overview embed
+    // If no subcommand provided, show overview embed
     // ────────────────────────────────────────────────────────────────────
     if (!args[0]) {
       const currentProvider = config.defaultSearchPlatform || "ytsearch";
@@ -78,12 +78,12 @@ export default {
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // English: handle subcommands: prefix, defaultvolume, provider
+    // Handle subcommands: prefix, defaultvolume, provider
     // ────────────────────────────────────────────────────────────────────
     const subCmd = args[0].toLowerCase();
 
     if (subCmd === "prefix") {
-      // English: update the command prefix
+      // Update the command prefix
       if (!args[1]) {
         return message.reply(`Current prefix is \`${config.prefix}\`. Usage: \`${prefix}setconfig prefix <newprefix>\``);
       }
@@ -91,7 +91,7 @@ export default {
       config.prefix = newPrefix;
       try {
         await fs.writeFile(configPath, JSON.stringify(config, null, 2));
-        // English: update in-memory config so prefix takes effect immediately
+        // Update in-memory config so prefix takes effect immediately
         client.config = config;
         global.config = config;
         return message.channel.send({
@@ -108,7 +108,7 @@ export default {
       }
 
     } else if (subCmd === "defaultvolume") {
-      // English: update the default volume
+      // Update the default volume
       if (!args[1]) {
         return message.reply(`Current default volume is **${config.defaultVolume || 50}%**. Usage: \`${prefix}setconfig defaultvolume <newdefaultvolume>\``);
       }
@@ -135,14 +135,14 @@ export default {
       }
 
     } else if (subCmd === "provider") {
-      // English: interactive mode for changing the search provider
+      // Interactive mode for changing the search provider
       const currentValue = config.defaultSearchPlatform || "ytsearch";
       const currentDisplay = {
         ytsearch: { name: "YouTube", emoji: "<:yt:1343597758791024660>" },
         ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
       }[currentValue] || { name: currentValue, emoji: "" };
 
-      // English: prompt user to select new provider
+      // Prompt user to select new provider
       const initialEmbed = new EmbedBuilder()
         .setTitle("Change Search Provider")
         .setDescription(
@@ -169,7 +169,7 @@ export default {
         components: [row]
       });
 
-      // English: collector to handle button clicks
+      // Collector to handle button clicks
       const collector = msg.createMessageComponentCollector({ time: 30000 });
       collector.on("collect", async (interaction) => {
         if (!interaction.isButton()) return;
@@ -196,7 +196,7 @@ export default {
             ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
           }[newConfig.defaultSearchPlatform] || { name: newConfig.defaultSearchPlatform, emoji: "" };
 
-          // English: confirmation embed
+          // Confirmation embed
           const updatedEmbed = new EmbedBuilder()
             .setTitle("Configuration Updated")
             .setDescription(`Search provider updated to ${updatedDisplay.emoji} **${updatedDisplay.name}**.`)
@@ -228,7 +228,7 @@ export default {
       });
 
     } else {
-      // English: unknown subcommand fallback
+      // Unknown subcommand fallback
       return message.reply("Unknown subcommand. Available options: provider, prefix, defaultvolume.");
     }
   }
