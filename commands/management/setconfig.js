@@ -1,10 +1,5 @@
-// commands/setconfig.js
-// Command to change configuration settings.
-// Usage:
-// • .setconfig               → Shows an overview of all configurable settings.
-// • .setconfig provider      → Change search platform interactively.
-// • .setconfig prefix <newprefix>
-// • .setconfig defaultvolume <newdefaultvolume>
+// commands/management/setconfig.js
+// Command to change configuration settings for the bot.
 
 import fs from "fs/promises";
 import { join, dirname } from "path";
@@ -20,20 +15,19 @@ import logger from "../../utils/logger.js";
 
 export default {
   name: "setconfig",
-  description:
-    "Change configuration: Use subcommands to update provider, prefix or default volume.",
+  description: "Change configuration: update provider, prefix, or default volume.",
   async execute(client, message, args) {
-    // Check if the user has administrator permissions using the proper flag
+    // English: ensure user has Administrator permission
     if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
       return message.reply("Administrator permissions are required to change configuration.");
     }
 
-    // Determine the path to the configuration file
+    // English: resolve the path to config.json by going two levels up to project root
     const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
+    const __dirname  = dirname(__filename);
     const configPath = join(__dirname, "..", "..", "config", "config.json");
 
-    // Load current configuration from file
+    // English: load the current configuration from file
     let config;
     try {
       const data = await fs.readFile(configPath, "utf-8");
@@ -43,22 +37,18 @@ export default {
       return message.reply("Failed to load configuration.");
     }
 
-    // Create the map for displaying provider information
-    const searchDisplayMap = {
-      "ytsearch": {
-        name: "YouTube",
-        emoji: "<:yt:1343597758791024660>"
-      },
-      "ytmsearch": {
-        name: "Music",
-        emoji: "<:ytm:1343595756740673586>"
-      }
-    };
+    // English: get the dynamic prefix currently in use
+    const prefix = client.config.prefix || ".";
 
-    // If no subcommand parameters are provided, show an overview page
+    // ────────────────────────────────────────────────────────────────────
+    // English: if no subcommand provided, show overview embed
+    // ────────────────────────────────────────────────────────────────────
     if (!args[0]) {
       const currentProvider = config.defaultSearchPlatform || "ytsearch";
-      const providerDisplay = searchDisplayMap[currentProvider] || { name: currentProvider, emoji: "" };
+      const providerDisplay = {
+        ytsearch: { name: "YouTube", emoji: "<:yt:1343597758791024660>" },
+        ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
+      }[currentProvider] || { name: currentProvider, emoji: "" };
 
       const overviewEmbed = new EmbedBuilder()
         .setTitle("Configuration Overview")
@@ -66,50 +56,61 @@ export default {
         .addFields(
           {
             name: "Search Provider",
-            value: `**Current:** ${providerDisplay.emoji} ${providerDisplay.name}\n` +
-                   `*Change with:* \`.setconfig provider\``
+            value:
+              `**Current:** ${providerDisplay.emoji} ${providerDisplay.name}\n` +
+              `*Change with:* \`${prefix}setconfig provider\``
           },
           {
             name: "Command Prefix",
-            value: `**Current:** \`${config.prefix}\`\n` +
-                   `*Change with:* \`.setconfig prefix <newprefix>\``
+            value:
+              `**Current:** \`${config.prefix}\`\n` +
+              `*Change with:* \`${prefix}setconfig prefix <newprefix>\``
           },
           {
             name: "Default Volume",
-            value: `**Current:** \`${config.defaultVolume || 50}%\`\n` +
-                   `*Change with:* \`.setconfig defaultvolume <newdefaultvolume>\``
+            value:
+              `**Current:** \`${config.defaultVolume || 50}%\`\n` +
+              `*Change with:* \`${prefix}setconfig defaultvolume <newdefaultvolume>\``
           }
         )
         .setFooter({ text: "Use the above commands to change the respective setting." });
       return message.channel.send({ embeds: [overviewEmbed] });
     }
 
-    // Handle subcommands: prefix, defaultvolume, provider
-    const subCommand = args[0].toLowerCase();
-    if (subCommand === "prefix") {
+    // ────────────────────────────────────────────────────────────────────
+    // English: handle subcommands: prefix, defaultvolume, provider
+    // ────────────────────────────────────────────────────────────────────
+    const subCmd = args[0].toLowerCase();
+
+    if (subCmd === "prefix") {
+      // English: update the command prefix
       if (!args[1]) {
-        return message.reply(`Current prefix is \`${config.prefix}\`. Usage: \`.setconfig prefix <newprefix>\``);
+        return message.reply(`Current prefix is \`${config.prefix}\`. Usage: \`${prefix}setconfig prefix <newprefix>\``);
       }
       const newPrefix = args[1];
       config.prefix = newPrefix;
       try {
         await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+        // English: update in-memory config so prefix takes effect immediately
         client.config = config;
         global.config = config;
-        const embed = new EmbedBuilder()
-          .setTitle("Configuration Updated")
-          .setDescription(`Prefix updated to **${newPrefix}**.`)
-          .setColor("Green");
-        return message.channel.send({ embeds: [embed] });
+        return message.channel.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Configuration Updated")
+              .setDescription(`Prefix updated to **${newPrefix}**.`)
+              .setColor("Green")
+          ]
+        });
       } catch (err) {
         logger.error("[setconfig] Error updating prefix:", err);
         return message.reply("Failed to update prefix.");
       }
-    } else if (subCommand === "defaultvolume") {
+
+    } else if (subCmd === "defaultvolume") {
+      // English: update the default volume
       if (!args[1]) {
-        return message.reply(
-          `Current default volume is **${config.defaultVolume || 50}%**. Usage: \`.setconfig defaultvolume <newdefaultvolume>\``
-        );
+        return message.reply(`Current default volume is **${config.defaultVolume || 50}%**. Usage: \`${prefix}setconfig defaultvolume <newdefaultvolume>\``);
       }
       const newVolume = parseInt(args[1], 10);
       if (isNaN(newVolume) || newVolume < 0 || newVolume > 100) {
@@ -120,20 +121,28 @@ export default {
         await fs.writeFile(configPath, JSON.stringify(config, null, 2));
         client.config = config;
         global.config = config;
-        const embed = new EmbedBuilder()
-          .setTitle("Configuration Updated")
-          .setDescription(`Default volume updated to **${newVolume}%**.`)
-          .setColor("Green");
-        return message.channel.send({ embeds: [embed] });
+        return message.channel.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle("Configuration Updated")
+              .setDescription(`Default volume updated to **${newVolume}%**.`)
+              .setColor("Green")
+          ]
+        });
       } catch (err) {
         logger.error("[setconfig] Error updating default volume:", err);
         return message.reply("Failed to update default volume.");
       }
-    } else if (subCommand === "provider") {
-      // --- Interactive mode for changing the search provider ---
-      const currentValue = config.defaultSearchPlatform || "ytsearch";
-      const currentDisplay = searchDisplayMap[currentValue] || { name: currentValue, emoji: "" };
 
+    } else if (subCmd === "provider") {
+      // English: interactive mode for changing the search provider
+      const currentValue = config.defaultSearchPlatform || "ytsearch";
+      const currentDisplay = {
+        ytsearch: { name: "YouTube", emoji: "<:yt:1343597758791024660>" },
+        ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
+      }[currentValue] || { name: currentValue, emoji: "" };
+
+      // English: prompt user to select new provider
       const initialEmbed = new EmbedBuilder()
         .setTitle("Change Search Provider")
         .setDescription(
@@ -160,6 +169,7 @@ export default {
         components: [row]
       });
 
+      // English: collector to handle button clicks
       const collector = msg.createMessageComponentCollector({ time: 30000 });
       collector.on("collect", async (interaction) => {
         if (!interaction.isButton()) return;
@@ -177,23 +187,24 @@ export default {
         }
 
         try {
+          // Write updated provider to disk
           await fs.writeFile(configPath, JSON.stringify(newConfig, null, 2));
           client.config = newConfig;
           global.config = newConfig;
-          const newVal = newConfig.defaultSearchPlatform;
-          const newDisplay = searchDisplayMap[newVal] || { name: newVal, emoji: "" };
+          const updatedDisplay = {
+            ytsearch: { name: "YouTube", emoji: "<:yt:1343597758791024660>" },
+            ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
+          }[newConfig.defaultSearchPlatform] || { name: newConfig.defaultSearchPlatform, emoji: "" };
 
+          // English: confirmation embed
           const updatedEmbed = new EmbedBuilder()
             .setTitle("Configuration Updated")
-            .setDescription(`Search provider updated to ${newDisplay.emoji} **${newDisplay.name}**.`)
+            .setDescription(`Search provider updated to ${updatedDisplay.emoji} **${updatedDisplay.name}**.`)
             .setColor("Green");
 
-          await msg.edit({
-            embeds: [updatedEmbed],
-            components: []
-          });
+          await msg.edit({ embeds: [updatedEmbed], components: [] });
           collector.stop();
-          logger.debug(`[setconfig] Updated search provider to ${newVal} in Guild="${message.guild.id}"`);
+          logger.debug(`[setconfig] Updated search provider to ${newConfig.defaultSearchPlatform} in Guild="${message.guild.id}"`);
         } catch (err) {
           logger.error("[setconfig] Error updating configuration:", err);
           const errorEmbed = new EmbedBuilder()
@@ -215,7 +226,9 @@ export default {
           logger.debug(`[setconfig] Collector timed out in Guild="${message.guild.id}"`);
         }
       });
+
     } else {
+      // English: unknown subcommand fallback
       return message.reply("Unknown subcommand. Available options: provider, prefix, defaultvolume.");
     }
   }

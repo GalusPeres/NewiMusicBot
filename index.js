@@ -11,18 +11,19 @@ import { generateStoppedEmbed } from "./utils/nowPlayingEmbed.js";
 import logger from "./utils/logger.js";
 
 // ────────────────────────────────────────────────────────────────────
-// 1.  Helpers
+// 1. Helpers: determine current file path and directory
 // ────────────────────────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
 // ────────────────────────────────────────────────────────────────────
-// 2.  Load configuration
+// 2. Load configuration from config/config.json in project root
 // ────────────────────────────────────────────────────────────────────
 const cfgPath = join(__dirname, "config", "config.json");
 let config = {};
 try {
-  const raw = await fs.readFile(cfgPath, "utf-8"); // ← plain ASCII hyphen
+  // Read the config file asynchronously
+  const raw = await fs.readFile(cfgPath, "utf-8");
   config = JSON.parse(raw);
   logger.info("Configuration loaded.");
 } catch (err) {
@@ -31,7 +32,7 @@ try {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// 3.  Discord client
+// 3. Initialize Discord client with required intents
 // ────────────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
@@ -41,17 +42,18 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+// Attach config to client for dynamic access
 client.config = config;
 global.config = config;
 
 // ────────────────────────────────────────────────────────────────────
-// 4.  Dynamic command loader
+// 4. Dynamic command loader: import all commands into a Collection
 // ────────────────────────────────────────────────────────────────────
 client.commands = new Collection();
 const commandsPath = join(__dirname, "commands");
 const dirEntries   = await fs.readdir(commandsPath, { withFileTypes: true });
 
-// 4‑a) folders act as categories
+// Load commands grouped by subfolders (categories)
 for (const folder of dirEntries.filter(e => e.isDirectory())) {
   const folderPath = join(commandsPath, folder.name);
   const files = (await fs.readdir(folderPath)).filter(f => f.endsWith(".js"));
@@ -68,7 +70,7 @@ for (const folder of dirEntries.filter(e => e.isDirectory())) {
   }
 }
 
-// 4‑b) single files in commands root
+// Load root-level commands (uncategorized)
 for (const f of dirEntries.filter(e => e.isFile() && e.name.endsWith(".js"))) {
   const mod = await import(pathToFileURL(join(commandsPath, f.name)).href);
   if (!mod.default?.name) {
@@ -81,15 +83,22 @@ for (const f of dirEntries.filter(e => e.isFile() && e.name.endsWith(".js"))) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// 5.  Message handler
+// 5. Message handler: parse prefix, identify command, execute
 // ────────────────────────────────────────────────────────────────────
-client.on("messageCreate", async msg => {
+client.on("messageCreate", async (msg) => {
   if (msg.author.bot || !msg.guild) return;
-  if (!msg.content.startsWith(config.prefix)) return;
 
-  const args = msg.content.slice(config.prefix.length).trim().split(/\s+/);
+  // Use the current, possibly updated prefix from client.config
+  if (!msg.content.startsWith(client.config.prefix)) return;
+
+  // Remove prefix and split arguments
+  const args = msg.content
+    .slice(client.config.prefix.length)
+    .trim()
+    .split(/\s+/);
   const cmdName = args.shift().toLowerCase();
 
+  // Find the command by name or alias
   const cmd =
     client.commands.get(cmdName) ||
     [...client.commands.values()].find(c => c.aliases?.includes(cmdName));
@@ -100,6 +109,7 @@ client.on("messageCreate", async msg => {
   );
 
   try {
+    // Execute the command
     await cmd.execute(client, msg, args);
   } catch (err) {
     logger.error(`Error executing "${cmdName}":`, err);
@@ -108,7 +118,7 @@ client.on("messageCreate", async msg => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 6.  Voice‑state logger (bot only)
+// 6. Voice-state logger: track when the bot moves channels
 // ────────────────────────────────────────────────────────────────────
 client.on("voiceStateUpdate", (oldS, newS) => {
   if (newS.id !== client.user.id) return;
@@ -118,7 +128,7 @@ client.on("voiceStateUpdate", (oldS, newS) => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 7.  Lavalink manager
+// 7. Lavalink manager: configure music nodes and options
 // ────────────────────────────────────────────────────────────────────
 client.lavalink = new LavalinkManager({
   nodes: [
@@ -142,7 +152,7 @@ client.lavalinkReady = false;
 client.on("raw", d => client.lavalink.sendRawData(d));
 
 // ────────────────────────────────────────────────────────────────────
-// 8.  Login & ready
+// 8. Login & ready: connect to Discord and initialize Lavalink
 // ────────────────────────────────────────────────────────────────────
 client.login(config.token);
 
@@ -153,7 +163,7 @@ client.once("ready", async () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 9.  Lavalink event wiring
+// 9. Lavalink event wiring: update UI and handle track events
 // ────────────────────────────────────────────────────────────────────
 const trackStartTimestamps = new Map();
 
@@ -161,7 +171,7 @@ client.lavalink.on("trackStart", async (player, track) => {
   logger.debug(`Guild="${player.guildId}" | Track started: "${track.info.title}"`);
   trackStartTimestamps.set(player.guildId, Date.now());
 
-  // update UI one second later so the voice state is in sync
+  // Delay UI update by 1s to ensure voice state is synced
   setTimeout(async () => {
     const ch = client.channels.cache.get(player.textChannelId);
     if (ch) await sendOrUpdateNowPlayingUI(player, ch);
@@ -169,9 +179,9 @@ client.lavalink.on("trackStart", async (player, track) => {
 });
 
 function resetPlayerUI(player) {
+  // Clear queues and stop any collectors/intervals
   player.queue.previous = [];
   player.queue.tracks   = [];
-
   if (player.nowPlayingCollector) {
     player.nowPlayingCollector.stop();
     player.nowPlayingCollector = null;
@@ -180,6 +190,7 @@ function resetPlayerUI(player) {
     clearInterval(player.nowPlayingInterval);
     player.nowPlayingInterval = null;
   }
+  // Edit the existing message to show 'stopped'
   if (player.nowPlayingMessage) {
     player.nowPlayingMessage
       .edit({ embeds: [generateStoppedEmbed()], components: [] })
@@ -200,7 +211,6 @@ client.lavalink.on("queueEnd", player => {
 client.lavalink.on("trackException", (player, track, payload) => {
   const msg = payload.exception.message;
   logger.error(`Guild="${player.guildId}" | Track="${track.info.title}" | Exception: ${msg}`);
-
   const ch = client.channels.cache.get(player.textChannelId);
   if (!ch) return;
   if (msg.includes("unavailable")) {
