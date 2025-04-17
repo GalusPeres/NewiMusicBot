@@ -1,124 +1,123 @@
 // commands/playback/search.js
-// Command to search for multiple tracks and let the user select one via a dropdown menu.
-// Uses .search, .searchm (for YouTube Music search), or .searchyt (for YouTube search).
-// If the bot is idle (stopped) and in a different voice channel than the user,
-// it will disconnect the old player (and remove it) before reconnecting in the user's channel.
+// Lets the user pick from up to 25 search results.
+// Sends a confirmation embed after the user selects a track.
 
-import { ActionRowBuilder, StringSelectMenuBuilder } from "discord.js";
+import { ActionRowBuilder, StringSelectMenuBuilder, EmbedBuilder } from "discord.js";
 import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
 import logger from "../../utils/logger.js";
 
 export default {
   name: "search",
   aliases: ["searchm", "searchyt"],
-  description: "Search for multiple tracks. Use .searchm for YouTube Music search, .searchyt for YouTube search. Default is used otherwise.",
+  description:
+    "Searches for multiple tracks. Use .searchm for YouTube Music search, .searchyt for YouTube search.",
   async execute(client, message, args) {
-    if (!client.lavalinkReady) {
-      return message.reply("Lavalink is not initialized yet. Please wait a moment.");
-    }
-    const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) {
-      return message.reply("You must be in a voice channel!");
-    }
-    const query = args.join(" ").trim();
-    if (!query) {
-      return message.reply("Please provide a search term!");
-    }
+    if (!client.lavalinkReady)
+      return message.reply("Lavalink is not ready. Please wait a moment.");
 
-    // Determine if a specific search mode is forced by the command alias
-    const invoked = message.content.slice(client.config.prefix.length).split(" ")[0].toLowerCase();
-    let forcedMode = null;
-    if (invoked === "searchm") forcedMode = "ytmsearch";
-    else if (invoked === "searchyt") forcedMode = "ytsearch";
-    
-    const searchMode = forcedMode || client.config.defaultSearchPlatform;
-    
-    // Retrieve the player for this guild
+    const userVC = message.member.voice.channel;
+    if (!userVC) return message.reply("Join a voice channel first!");
+
+    const query = args.join(" ").trim();
+    if (!query) return message.reply("Provide a search term!");
+
+    logger.debug(
+      `[search] ${message.author.tag} requested "${query}" in VC=${userVC.id}`
+    );
+
+    const invoked = message.content
+      .slice(client.config.prefix.length)
+      .split(" ")[0]
+      .toLowerCase();
+    const forced =
+      invoked === "searchm" ? "ytmsearch" : invoked === "searchyt" ? "ytsearch" : null;
+    const mode = forced || client.config.defaultSearchPlatform;
+
+    // ── player logic (destroy silent wrong‑VC player) ─────────────────
     let player = client.lavalink.getPlayer(message.guild.id);
-    // Modified robust check:
-    // If a player exists, is connected, is in a different voice channel,
-    // and is NOT active (not playing and not paused), then disconnect and remove it.
-    if (
-      player &&
-      player.connected &&
-      player.voiceChannelId !== voiceChannel.id &&
-      !player.playing &&
-      !player.paused
-    ) {
-      logger.debug(`[search] Guild="${message.guild.id}" - Player is idle in a different voice channel. Reconnecting to user's channel.`);
-      await player.disconnect();
+    if (player && !player.playing && !player.paused && player.voiceChannelId !== userVC.id) {
+      await player.destroy();
       client.lavalink.players.delete(message.guild.id);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(r => setTimeout(r, 300));
       player = null;
     }
-    
+
+    // create or move player
     if (!player) {
       player = await client.lavalink.createPlayer({
-        guildId: message.guild.id,
-        voiceChannelId: voiceChannel.id,
-        textChannelId: message.channel.id,
-        selfDeaf: true
+        guildId:       message.guild.id,
+        voiceChannelId: userVC.id,
+        textChannelId:  message.channel.id,
+        selfDeaf:       true
       });
       await player.connect();
+    } else {
+      if (player.voiceChannelId !== userVC.id) {
+        if (typeof player.setVoiceChannel === "function")
+          await player.setVoiceChannel(userVC.id);
+        else
+          player.voiceChannelId = userVC.id;
+        await player.connect();
+      } else if (!player.connected) {
+        await player.connect();
+      }
+    }
+
+    if (player.volume == null)
       await player.setVolume(client.config.defaultVolume || 50, false);
-    }
-    
-    let result;
-    try {
-      result = await player.search({ query: `${searchMode}:${query}`, source: searchMode }, message.author);
-    } catch (error) {
-      logger.error("[search] Search error:", error);
-      return message.reply("An error occurred while searching.");
-    }
-    if (!result || !result.tracks || result.tracks.length === 0) {
-      return message.reply("No tracks found for that query.");
-    }
-    
-    // Limit results to a maximum of 25 tracks
-    const tracks = result.tracks.slice(0, 25);
-    const options = tracks.map((track, index) => ({
-      label: track.info.title.slice(0, 100),
-      description: (track.info.author || "Unknown Author").slice(0, 100),
-      value: String(index)
+
+    // ── perform search ────────────────────────────────────────────────
+    const res = await player.search({ query: `${mode}:${query}`, source: mode }, message.author);
+    if (!res?.tracks?.length) return message.reply("No tracks found.");
+
+    const tracks = res.tracks.slice(0, 25);
+    const options = tracks.map((t, i) => ({
+      label: t.info.title.slice(0, 100),
+      description: (t.info.author || "Unknown").slice(0, 100),
+      value: String(i)
     }));
-    
-    // Create a dropdown menu for track selection
+
     const menu = new StringSelectMenuBuilder()
       .setCustomId("searchSelect")
       .setPlaceholder("Select a track")
       .addOptions(options);
     const row = new ActionRowBuilder().addComponents(menu);
-    
+
     const selectMsg = await message.channel.send({
       content: "Select a track:",
       components: [row]
     });
-    
-    // Collect the user's selection (30-second timeout)
+
+    // ── handle user selection ─────────────────────────────────────────
     const collector = selectMsg.createMessageComponentCollector({ time: 30000 });
-    collector.on("collect", async (interaction) => {
+    collector.on("collect", async interaction => {
       if (!interaction.isStringSelectMenu() || interaction.customId !== "searchSelect") return;
-      const selectedIndex = parseInt(interaction.values[0], 10);
-      const chosenTrack = tracks[selectedIndex];
-      if (!chosenTrack) {
-        await interaction.reply({ content: "Invalid selection.", ephemeral: true });
-        return;
+
+      const idx = Number(interaction.values[0]);
+      const chosen = tracks[idx];
+      if (!chosen) {
+        return interaction.reply({ content: "Invalid selection.", ephemeral: true });
       }
-      // Add the selected track to the player's queue
-      player.queue.add(chosenTrack);
-      if (!player.playing && !player.paused) {
-        await player.play();
+
+      player.queue.add(chosen);
+
+      // confirmation (only if music already plays/paused)
+      if (player.playing || player.paused) {
+        const embed = new EmbedBuilder()
+          .setColor("Blurple")
+          .setDescription(`Added **${chosen.info.title}** to the queue.`);
+        message.channel.send({ embeds: [embed] }).catch(() => {});
       }
+
+      if (!player.playing && !player.paused) await player.play();
+
       await interaction.deferUpdate();
       selectMsg.delete().catch(() => {});
       await sendOrUpdateNowPlayingUI(player, message.channel);
-      logger.debug(`[search] Track selected and added to queue in Guild="${message.guild.id}"`);
     });
-    
-    collector.on("end", (_collected, reason) => {
-      if (reason === "time") {
-        selectMsg.delete().catch(() => {});
-      }
+
+    collector.on("end", (_, reason) => {
+      if (reason === "time") selectMsg.delete().catch(() => {});
     });
   }
 };

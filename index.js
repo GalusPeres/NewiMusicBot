@@ -1,5 +1,5 @@
 // index.js
-// Main entry point for the Discord music bot application
+// Main entry point for NewiMusicBot — English comments only.
 
 import { Client, Collection, GatewayIntentBits } from "discord.js";
 import { LavalinkManager } from "lavalink-client";
@@ -10,26 +10,29 @@ import { sendOrUpdateNowPlayingUI } from "./utils/nowPlayingManager.js";
 import { generateStoppedEmbed } from "./utils/nowPlayingEmbed.js";
 import logger from "./utils/logger.js";
 
-// Map to track the timestamp of trackStart events per guild
-const trackStartTimestamps = new Map();
-
-// Determine the current directory using ES module utilities
+// ────────────────────────────────────────────────────────────────────
+// 1.  Helpers
+// ────────────────────────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname  = dirname(__filename);
 
-// Load configuration from config/config.json
-const configPath = join(__dirname, "config", "config.json");
+// ────────────────────────────────────────────────────────────────────
+// 2.  Load configuration
+// ────────────────────────────────────────────────────────────────────
+const cfgPath = join(__dirname, "config", "config.json");
 let config = {};
 try {
-  const data = await fs.readFile(configPath, "utf-8");
-  config = JSON.parse(data);
-  logger.info("Configuration loaded successfully.");
+  const raw = await fs.readFile(cfgPath, "utf-8"); // ← plain ASCII hyphen
+  config = JSON.parse(raw);
+  logger.info("Configuration loaded.");
 } catch (err) {
   logger.error("Failed to load configuration:", err);
   process.exit(1);
 }
 
-// Create a new Discord client with required intents
+// ────────────────────────────────────────────────────────────────────
+// 3.  Discord client
+// ────────────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -41,211 +44,180 @@ const client = new Client({
 client.config = config;
 global.config = config;
 
-// Collection für alle Commands
+// ────────────────────────────────────────────────────────────────────
+// 4.  Dynamic command loader
+// ────────────────────────────────────────────────────────────────────
 client.commands = new Collection();
-
-/**
- * DYNAMISCHES LADEN DER COMMANDS
- * 1) Unterordner durchgehen → darin enthaltene JS-Dateien laden und "category" = Unterordnername
- * 2) Dateien direkt im "commands"-Ordner → "category" = "Uncategorized"
- */
 const commandsPath = join(__dirname, "commands");
+const dirEntries   = await fs.readdir(commandsPath, { withFileTypes: true });
 
-// 1) Unterordner ermitteln
-const dirEntries = await fs.readdir(commandsPath, { withFileTypes: true });
-const folderNames = dirEntries.filter(dirent => dirent.isDirectory()).map(dirent => dirent.name);
+// 4‑a) folders act as categories
+for (const folder of dirEntries.filter(e => e.isDirectory())) {
+  const folderPath = join(commandsPath, folder.name);
+  const files = (await fs.readdir(folderPath)).filter(f => f.endsWith(".js"));
 
-for (const folder of folderNames) {
-  const folderPath = join(commandsPath, folder);
-  const commandFiles = (await fs.readdir(folderPath)).filter(file => file.endsWith(".js"));
-  
-  for (const file of commandFiles) {
-    const fileUrl = pathToFileURL(join(folderPath, file)).href;
-    const { default: command } = await import(fileUrl);
-
-    if (command && command.name) {
-      // Automatisch die Kategorie aus dem Ordnernamen setzen
-      command.category = folder;
-      client.commands.set(command.name, command);
-      logger.debug(`Command "${command.name}" loaded from category "${folder}".`);
-    } else {
-      logger.warn(`Command file "${file}" in folder "${folder}" is missing a valid "name" property.`);
+  for (const file of files) {
+    const mod = await import(pathToFileURL(join(folderPath, file)).href);
+    if (!mod.default?.name) {
+      logger.warn(`Command file "${file}" in "${folder.name}" has no name.`);
+      continue;
     }
+    mod.default.category = folder.name;
+    client.commands.set(mod.default.name, mod.default);
+    logger.debug(`Loaded "${mod.default.name}" from category "${folder.name}".`);
   }
 }
 
-// 2) Dateien im Root-Verzeichnis von "commands" (ohne Unterordner)
-const rootCommandFiles = dirEntries
-  .filter(dirent => dirent.isFile() && dirent.name.endsWith(".js"))
-  .map(dirent => dirent.name);
-
-for (const file of rootCommandFiles) {
-  const fileUrl = pathToFileURL(join(commandsPath, file)).href;
-  const { default: command } = await import(fileUrl);
-  
-  if (command && command.name) {
-    // Falls gewünscht: Standard-Kategorie, z. B. "Uncategorized"
-    command.category = "Uncategorized";
-    client.commands.set(command.name, command);
-    logger.debug(`Command "${command.name}" loaded from root folder as "Uncategorized".`);
-  } else {
-    logger.warn(`Command file "${file}" in root commands folder is missing a valid "name" property.`);
+// 4‑b) single files in commands root
+for (const f of dirEntries.filter(e => e.isFile() && e.name.endsWith(".js"))) {
+  const mod = await import(pathToFileURL(join(commandsPath, f.name)).href);
+  if (!mod.default?.name) {
+    logger.warn(`Root command "${f.name}" has no name.`);
+    continue;
   }
+  mod.default.category = "Uncategorized";
+  client.commands.set(mod.default.name, mod.default);
+  logger.debug(`Loaded "${mod.default.name}" (root).`);
 }
 
-// MESSAGE CREATE LISTENER
-client.on("messageCreate", async (message) => {
-  // Ignore messages from bots or messages outside guilds
-  if (message.author.bot || !message.guild) return;
+// ────────────────────────────────────────────────────────────────────
+// 5.  Message handler
+// ────────────────────────────────────────────────────────────────────
+client.on("messageCreate", async msg => {
+  if (msg.author.bot || !msg.guild) return;
+  if (!msg.content.startsWith(config.prefix)) return;
 
-  const prefix = client.config.prefix;
-  if (!message.content.startsWith(prefix)) return;
+  const args = msg.content.slice(config.prefix.length).trim().split(/\s+/);
+  const cmdName = args.shift().toLowerCase();
 
-  // Parse the command and arguments from the message
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const commandName = args.shift().toLowerCase();
-  
-  // Retrieve the command by name or alias
-  const command =
-    client.commands.get(commandName) ||
-    client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
-  if (!command) return;
+  const cmd =
+    client.commands.get(cmdName) ||
+    [...client.commands.values()].find(c => c.aliases?.includes(cmdName));
+  if (!cmd) return;
 
-  logger.debug(`Guild="${message.guild.id}" | Command="${commandName}" | Args=[${args.join(", ")}]`);
-  
+  logger.debug(
+    `Guild="${msg.guild.id}" | User="${msg.author.tag}" | Cmd="${cmdName}" | Args=[${args.join(", ")}]`
+  );
+
   try {
-    // Execute the command
-    await command.execute(client, message, args);
-  } catch (error) {
-    logger.error(`Error executing command "${commandName}":`, error);
-    message.reply("An error occurred while executing that command.");
+    await cmd.execute(client, msg, args);
+  } catch (err) {
+    logger.error(`Error executing "${cmdName}":`, err);
+    msg.reply("An error occurred while executing that command.");
   }
 });
 
-// Initialize Lavalink (music streaming manager)
+// ────────────────────────────────────────────────────────────────────
+// 6.  Voice‑state logger (bot only)
+// ────────────────────────────────────────────────────────────────────
+client.on("voiceStateUpdate", (oldS, newS) => {
+  if (newS.id !== client.user.id) return;
+  const oldVC = oldS.channelId || "None";
+  const newVC = newS.channelId || "None";
+  logger.debug(`[VOICE] Guild="${newS.guild.id}" Bot moved: ${oldVC} -> ${newVC}`);
+});
+
+// ────────────────────────────────────────────────────────────────────
+// 7.  Lavalink manager
+// ────────────────────────────────────────────────────────────────────
 client.lavalink = new LavalinkManager({
   nodes: [
     {
       authorization: config.lavalinkPassword,
-      host: config.lavalinkHost,
-      port: config.lavalinkPort,
-      id: "node1"
+      host:          config.lavalinkHost,
+      port:          config.lavalinkPort,
+      id:            "node1"
     }
   ],
-  // Function to send payloads to the correct shard based on guild ID
-  sendToShard: (guildId, payload) => {
-    const guild = client.guilds.cache.get(guildId);
-    if (guild && guild.shard) guild.shard.send(payload);
+  sendToShard: (gid, payload) => {
+    const g = client.guilds.cache.get(gid);
+    if (g && g.shard) g.shard.send(payload);
   },
   autoSkip: true,
-  client: {
-    id: config.clientId,
-    username: config.username
-  },
-  queueOptions: {
-    maxPreviousTracks: 1000
-  },
-  playerOptions: {
-    useUnresolvedData: false,
-    defaultSearchPlatform: config.defaultSearchPlatform || "ytmsearch"
-  }
+  client: { id: config.clientId, username: config.username },
+  queueOptions:  { maxPreviousTracks: 1000 },
+  playerOptions: { defaultSearchPlatform: config.defaultSearchPlatform || "ytmsearch" }
 });
 client.lavalinkReady = false;
-
-// Forward raw events from Discord to Lavalink
 client.on("raw", d => client.lavalink.sendRawData(d));
 
-// Log in to Discord with the bot token from the configuration
+// ────────────────────────────────────────────────────────────────────
+// 8.  Login & ready
+// ────────────────────────────────────────────────────────────────────
 client.login(config.token);
 
-// When the client is ready, initialize Lavalink and set up event listeners
 client.once("ready", async () => {
-  logger.info(`Bot "${client.user.tag}" is now online.`);
+  logger.info(`Bot "${client.user.tag}" is online.`);
   await client.lavalink.init(client.user);
   client.lavalinkReady = true;
+});
 
-  // Log when a Lavalink node is connected
-  client.lavalink.nodeManager.on("create", (node) => {
-    logger.debug(`Lavalink Node #${node.id} connected.`);
-  });
+// ────────────────────────────────────────────────────────────────────
+// 9.  Lavalink event wiring
+// ────────────────────────────────────────────────────────────────────
+const trackStartTimestamps = new Map();
 
-  // Handle the trackStart event to update the UI after a track starts
-  client.lavalink.on("trackStart", async (player, track) => {
-    logger.debug(`Guild="${player.guildId}" | Track started: "${track.info.title}"`);
-    trackStartTimestamps.set(player.guildId, Date.now());
-    // Delay UI update to ensure the track has started
-    setTimeout(async () => {
-      const channel = player.textChannelId ? client.channels.cache.get(player.textChannelId) : null;
-      if (channel) {
-        await sendOrUpdateNowPlayingUI(player, channel);
-        logger.debug(`UI updated for Guild="${player.guildId}" after trackStart.`);
-      }
-    }, 1000);
-  });
+client.lavalink.on("trackStart", async (player, track) => {
+  logger.debug(`Guild="${player.guildId}" | Track started: "${track.info.title}"`);
+  trackStartTimestamps.set(player.guildId, Date.now());
 
-  // Function to process end-of-queue events and reset player state
-  const processQueueEnd = (player) => {
-    logger.debug(`Processing queue end for Guild="${player.guildId}"`);
-    player.queue.previous = [];
-    player.queue.tracks = [];
-    if (player.nowPlayingCollector) {
-      logger.debug(`Stopping collector for Guild="${player.guildId}"`);
-      player.nowPlayingCollector.stop();
-      player.nowPlayingCollector = null;
-    }
-    if (player.nowPlayingInterval) {
-      logger.debug(`Clearing interval for Guild="${player.guildId}"`);
-      clearInterval(player.nowPlayingInterval);
-      player.nowPlayingInterval = null;
-    }
-    if (player.nowPlayingMessage) {
-      const stoppedEmbed = generateStoppedEmbed();
-      player.nowPlayingMessage.edit({ embeds: [stoppedEmbed], components: [] }).catch(() => {});
-      player.nowPlayingMessage = null;
-    }
-  };
+  // update UI one second later so the voice state is in sync
+  setTimeout(async () => {
+    const ch = client.channels.cache.get(player.textChannelId);
+    if (ch) await sendOrUpdateNowPlayingUI(player, ch);
+  }, 1000);
+});
 
-  // Listen for the queueEnd event to reset the UI and state when the queue ends
-  client.lavalink.on("queueEnd", (player) => {
-    const startTime = trackStartTimestamps.get(player.guildId) || 0;
-    const elapsed = Date.now() - startTime;
-    if (elapsed < 2000) {
-      const delay = 2000 - elapsed;
-      logger.debug(`Delaying queueEnd processing for Guild="${player.guildId}" by ${delay}ms`);
-      setTimeout(() => {
-        processQueueEnd(player);
-        trackStartTimestamps.delete(player.guildId);
-      }, delay);
-    } else {
-      processQueueEnd(player);
-      trackStartTimestamps.delete(player.guildId);
-    }
-  });
+function resetPlayerUI(player) {
+  player.queue.previous = [];
+  player.queue.tracks   = [];
 
-  // Listen for track exceptions and log errors in Discord
-  client.lavalink.on("trackException", (player, track, payload) => {
-    const errorMsg = payload.exception.message;
-    logger.error(`Guild="${player.guildId}" | Track="${track.info.title}" | Exception: ${errorMsg}`);
-    const channel = client.channels.cache.get(player.textChannelId);
-    if (channel) {
-      if (errorMsg.includes("This video is unavailable")) {
-        channel.send(`The track **${track.info.title}** is unavailable.`);
-      } else {
-        channel.send(`An error occurred while playing **${track.info.title}**: ${errorMsg}`);
-      }
-    }
-  });
+  if (player.nowPlayingCollector) {
+    player.nowPlayingCollector.stop();
+    player.nowPlayingCollector = null;
+  }
+  if (player.nowPlayingInterval) {
+    clearInterval(player.nowPlayingInterval);
+    player.nowPlayingInterval = null;
+  }
+  if (player.nowPlayingMessage) {
+    player.nowPlayingMessage
+      .edit({ embeds: [generateStoppedEmbed()], components: [] })
+      .catch(() => {});
+    player.nowPlayingMessage = null;
+  }
+}
 
-  // Listen for track end events with specific reasons (e.g., LOAD_FAILED)
-  client.lavalink.on("trackEnd", (player, track, payload) => {
-    logger.debug(`Guild="${player.guildId}" | Track="${track.info.title}" ended with reason: ${payload.reason}`);
-    if (payload.reason === "LOAD_FAILED") {
-      const channel = client.channels.cache.get(player.textChannelId);
-      if (channel) {
-        channel.send(`Track **${track.info.title}** ended unexpectedly (failed to load).`);
-      }
-    }
-  });
+client.lavalink.on("queueEnd", player => {
+  const elapsed = Date.now() - (trackStartTimestamps.get(player.guildId) || 0);
+  const delay   = elapsed < 2000 ? 2000 - elapsed : 0;
+  setTimeout(() => {
+    resetPlayerUI(player);
+    trackStartTimestamps.delete(player.guildId);
+  }, delay);
+});
+
+client.lavalink.on("trackException", (player, track, payload) => {
+  const msg = payload.exception.message;
+  logger.error(`Guild="${player.guildId}" | Track="${track.info.title}" | Exception: ${msg}`);
+
+  const ch = client.channels.cache.get(player.textChannelId);
+  if (!ch) return;
+  if (msg.includes("unavailable")) {
+    ch.send(`The track **${track.info.title}** is unavailable.`);
+  } else {
+    ch.send(`An error occurred while playing **${track.info.title}**:\n\`${msg}\``);
+  }
+});
+
+client.lavalink.on("trackEnd", (player, track, payload) => {
+  logger.debug(
+    `Guild="${player.guildId}" | Track="${track.info.title}" ended with reason: ${payload.reason}`
+  );
+  if (payload.reason === "LOAD_FAILED") {
+    const ch = client.channels.cache.get(player.textChannelId);
+    if (ch) ch.send(`Track **${track.info.title}** ended unexpectedly (failed to load).`);
+  }
 });
 
 export default client;

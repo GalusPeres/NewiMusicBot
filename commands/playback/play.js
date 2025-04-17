@@ -1,118 +1,102 @@
 // commands/playback/play.js
-// Command to play a track or playlist based on a query or URL.
-// Uses .play, .playm (for YouTube Music search), or .playyt (for YouTube search).
-// If the bot is stopped (idle) and in a different voice channel than the user,
-// it will disconnect the old player (and remove it) before connecting in the user's channel.
+// Plays a single track or an entire playlist.
+// Sends a confirmation embed when tracks are added to an active queue.
 
-import { formatTrackTitle } from "../../utils/formatTrack.js";
+import { EmbedBuilder } from "discord.js";
 import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
 import logger from "../../utils/logger.js";
 
 export default {
   name: "play",
   aliases: ["playm", "playyt"],
-  description: "Plays a song. Use .playm for YouTube Music search, .playyt for YouTube search. Otherwise, the default platform is used.",
+  description:
+    "Plays a song or playlist. Use .playm for YouTube Music search, .playyt for YouTube search.",
   async execute(client, message, args) {
-    // Ensure Lavalink is initialized
-    if (!client.lavalinkReady) {
-      return message.reply("Lavalink is not initialized yet. Please wait a moment.");
-    }
-    const voiceChannel = message.member.voice.channel;
-    if (!voiceChannel) {
-      logger.debug(`[play] Guild="${message.guild.id}" - User is not in a voice channel.`);
-      return message.reply("You must be in a voice channel!");
-    }
-    const query = args.join(" ").trim();
-    if (!query) {
-      logger.debug(`[play] Guild="${message.guild.id}" - No query provided.`);
-      return message.reply("Please provide a song name or link.");
-    }
-    
-    // Determine if a specific search mode is forced by the command alias
-    const invoked = message.content.slice(client.config.prefix.length).split(" ")[0].toLowerCase();
-    let forcedMode = null;
-    if (invoked === "playm") forcedMode = "ytmsearch";
-    else if (invoked === "playyt") forcedMode = "ytsearch";
+    if (!client.lavalinkReady)
+      return message.reply("Lavalink is not ready. Please wait a moment.");
 
-    // Check if the query is a URL and adjust the search mode accordingly
+    const userVC = message.member.voice.channel;
+    if (!userVC) return message.reply("Join a voice channel first!");
+
+    const query = args.join(" ").trim();
+    if (!query) return message.reply("Provide a song name or link.");
+
+    logger.debug(
+      `[play] ${message.author.tag} requested "${query}" in VC=${userVC.id}`
+    );
+
+    // ── search mode (alias overrides) ─────────────────────────────────
+    const invoked = message.content
+      .slice(client.config.prefix.length)
+      .split(" ")[0]
+      .toLowerCase();
+    const forced =
+      invoked === "playm" ? "ytmsearch" : invoked === "playyt" ? "ytsearch" : null;
+
     const isUrl = /^https?:\/\//.test(query);
     const isSpotify = isUrl && query.includes("spotify.com");
-    const defaultMode = isUrl ? (isSpotify ? "ytmsearch" : "ytsearch") : (forcedMode || client.config.defaultSearchPlatform);
-    const finalQuery = isUrl ? query : `${defaultMode}:${query}`;
-    
-    // Retrieve or create the player for this guild
+    const mode = isUrl
+      ? isSpotify
+        ? "ytmsearch"
+        : "ytsearch"
+      : forced || client.config.defaultSearchPlatform;
+    const finalQuery = isUrl ? query : `${mode}:${query}`;
+
+    // ── player logic (destroy silent wrong‑VC player) ─────────────────
     let player = client.lavalink.getPlayer(message.guild.id);
-    
-    // Modified robust check:
-    // If a player exists, is connected, is in a different voice channel,
-    // and is NOT active (not playing and not paused), then disconnect and remove it.
-    if (
-      player &&
-      player.connected &&
-      player.voiceChannelId !== voiceChannel.id &&
-      !player.playing &&
-      !player.paused
-    ) {
-      logger.debug(`[play] Guild="${message.guild.id}" - Player is idle in a different voice channel. Reconnecting to user's channel.`);
-      await player.disconnect();
+    if (player && !player.playing && !player.paused && player.voiceChannelId !== userVC.id) {
+      await player.destroy();
       client.lavalink.players.delete(message.guild.id);
-      // Wait briefly to allow Discord to update the voice state
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(r => setTimeout(r, 300));
       player = null;
     }
-    
+
+    // create or move player
     if (!player) {
-      logger.debug(`[play] Guild="${message.guild.id}" - Creating new player.`);
       player = await client.lavalink.createPlayer({
-        guildId: message.guild.id,
-        voiceChannelId: voiceChannel.id,
-        textChannelId: message.channel.id,
-        selfDeaf: true
+        guildId:       message.guild.id,
+        voiceChannelId: userVC.id,
+        textChannelId:  message.channel.id,
+        selfDeaf:       true
       });
-      // Set volume to the configured defaultVolume, fallback to 50
-      await player.setVolume(client.config.defaultVolume || 50, false);
-    }
-    if (!player.connected) {
-      logger.debug(`[play] Guild="${message.guild.id}" - Connecting player.`);
       await player.connect();
-    }
-    
-    let result;
-    try {
-      // Search for the track or playlist using Lavalink's search function
-      result = await player.search({ query: finalQuery, source: defaultMode }, message.author);
-      logger.debug(`[play] Search loadType="${result.loadType}" for Guild="${message.guild.id}"`);
-      if (result.tracks[0]) {
-        logger.debug(`[play] First track found: "${result.tracks[0].info.title}"`);
-      }
-    } catch (error) {
-      logger.error("[play] Search error:", error);
-      return message.reply("An error occurred while searching.");
-    }
-    
-    if (!result || !result.tracks || result.tracks.length === 0) {
-      logger.debug(`[play] Guild="${message.guild.id}" - No tracks found.`);
-      return message.reply("No tracks found for that query.");
-    }
-    
-    // If a playlist is loaded, add all tracks; otherwise, add a single track
-    if (result.loadType === "playlist") {
-      result.tracks.forEach(t => (t.requestedAsUrl = false));
-      player.queue.add(result.tracks);
-      logger.debug(`[play] Playlist added (size=${result.tracks.length}). New queue length: ${player.queue.tracks.length}`);
     } else {
-      const track = result.tracks[0];
-      track.requestedAsUrl = isSpotify ? false : isUrl;
-      player.queue.add(track);
-      logger.debug(`[play] Single track added. New queue length: ${player.queue.tracks.length}`);
+      if (player.voiceChannelId !== userVC.id) {
+        if (typeof player.setVoiceChannel === "function")
+          await player.setVoiceChannel(userVC.id);
+        else
+          player.voiceChannelId = userVC.id;
+        await player.connect(); // always update voice state
+      } else if (!player.connected) {
+        await player.connect();
+      }
     }
-    
-    // Start playback if not already playing
-    if (!player.playing && !player.paused) {
-      logger.debug(`[play] Guild="${message.guild.id}" - Starting playback.`);
-      await player.play();
+
+    if (player.volume == null)
+      await player.setVolume(client.config.defaultVolume || 50, false);
+
+    // ── search on Lavalink ────────────────────────────────────────────
+    const res = await player.search({ query: finalQuery, source: mode }, message.author);
+    if (!res?.tracks?.length) return message.reply("No tracks found for that query.");
+
+    // ── add to queue & build confirmation ─────────────────────────────
+    let confirmation = "";
+    if (res.loadType === "playlist") {
+      player.queue.add(res.tracks);
+      confirmation = `Added **${res.tracks.length}** tracks from playlist to the queue.`;
+    } else {
+      player.queue.add(res.tracks[0]);
+      confirmation = `Added **${res.tracks[0].info.title}** to the queue.`;
     }
-    // Update the "Now Playing" UI
+
+    // show confirmation only when something is already playing/paused
+    if (player.playing || player.paused) {
+      const embed = new EmbedBuilder().setColor("Blurple").setDescription(confirmation);
+      message.channel.send({ embeds: [embed] }).catch(() => {});
+    }
+
+    // ── start playback if idle, update UI ─────────────────────────────
+    if (!player.playing && !player.paused) await player.play();
     await sendOrUpdateNowPlayingUI(player, message.channel);
   }
 };
