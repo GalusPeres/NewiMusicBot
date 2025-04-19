@@ -1,23 +1,26 @@
 // utils/nowPlayingManager.js
-// Manages sending and updating the "Now Playing" UI in a Discord channel with interactive buttons.
+// This module manages the "Now Playing" UI in a Discord channel. It sends or updates the embed with playback information and interactive controls, using throttling and diff-checking to minimize unnecessary edits.
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { generateNowPlayingEmbed, generateStoppedEmbed } from "./nowPlayingEmbed.js";
 import { updateNowPlaying } from "./updateNowPlaying.js";
 import { togglePlayPause, performSkip, performStop } from "./playerControls.js";
 import logger from "./logger.js";
+import { isDeepStrictEqual as isEqual } from "node:util";
 
-// Helper function to create the button row
+// Minimum interval between two updates (ms)
+const MIN_UI_UPDATE_INTERVAL = 3000;
+
+// Helper: create the button row
 function createButtonRow(player) {
-  const previousDisabled = !(player.queue.previous && player.queue.previous.length > 0);
-  const skipDisabled = !(player.queue.tracks && player.queue.tracks.length > 0);
-  
+  const prevDisabled = !(player.queue.previous && player.queue.previous.length > 0);
+  const skipDisabled = !(player.queue.tracks   && player.queue.tracks.length   > 0);
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("previous")
       .setEmoji({ name: "previous", id: "1343186231856730172" })
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(previousDisabled),
+      .setDisabled(prevDisabled),
     new ButtonBuilder()
       .setCustomId("playpause")
       .setEmoji({ name: "playpause", id: "1342881662660509776" })
@@ -38,172 +41,145 @@ function createButtonRow(player) {
   );
 }
 
-// Main function to send or update the Now Playing UI
+/**
+ * Sends or updates the "Now Playing" UI:
+ * - at most every MIN_UI_UPDATE_INTERVAL ms
+ * - only if the embed content has actually changed
+ */
 export async function sendOrUpdateNowPlayingUI(player, channel) {
-  // Generate the embed for the current track
-  let embed = generateNowPlayingEmbed(player);
+  const now = Date.now();
+
+  // 1) Throttle: only every MIN_UI_UPDATE_INTERVAL ms
+  if (player._lastUIUpdate && now - player._lastUIUpdate < MIN_UI_UPDATE_INTERVAL) {
+    logger.debug(`[nowPlayingManager] Skipping UI update: only ${now - player._lastUIUpdate}ms since last.`);
+    return player.nowPlayingMessage;
+  }
+  player._lastUIUpdate = now;
+
+  // 2) Generate embed
+  const embed = generateNowPlayingEmbed(player);
   if (!embed) {
-    logger.debug("[nowPlayingManager] No current track - skipping UI update.");
+    logger.debug("[nowPlayingManager] No current track – skipping UI update.");
     return;
   }
 
-  // Check if a new message needs to be created
-  const shouldRecreateMessage =
-    !player.nowPlayingMessage ||
-    !player.nowPlayingMessage.components ||
-    player.nowPlayingMessage.components.length === 0 ||
-    (player.nowPlayingMessage.embeds[0] &&
-      player.nowPlayingMessage.embeds[0].title === "Playback Stopped");
-
-  // Function to start the update interval (every 3 seconds)
-  function startNowPlayingInterval() {
-    if (!player.nowPlayingInterval) {
-      player.nowPlayingInterval = setInterval(() => {
-        if (player.playing || player.paused) {
-          updateNowPlaying(player);
-        } else {
-          clearInterval(player.nowPlayingInterval);
-          player.nowPlayingInterval = null;
-        }
-      }, 3000);
-    }
+  // 3) Diff-check: only if data changed
+  const newData = embed.toJSON();
+  if (player._lastEmbedData && isEqual(player._lastEmbedData, newData)) {
+    logger.debug("[nowPlayingManager] Embed unchanged – skipping update.");
+    return player.nowPlayingMessage;
   }
+  player._lastEmbedData = newData;
+
+  // 4) Create buttons
+  const buttonRow = createButtonRow(player);
 
   try {
-    if (shouldRecreateMessage) {
-      // Delete old message if present
-      if (player.nowPlayingMessage) {
-        try {
-          await player.nowPlayingMessage.delete();
-        } catch (_) {}
-        player.nowPlayingMessage = null;
-      }
-
-      // Create the button row
-      const buttonRow = createButtonRow(player);
-
-      // Send a new message with the embed and buttons
+    if (!player.nowPlayingMessage) {
+      // Initial send
       player.nowPlayingMessage = await channel.send({
-        embeds: [embed],
+        embeds:     [embed],
         components: [buttonRow]
       });
       logger.debug("[nowPlayingManager] New Now Playing message sent.");
-      
-      // Start the interval if not already active
+
+      // Start auto-update interval
       if (!player.nowPlayingInterval) {
-        startNowPlayingInterval();
+        player.nowPlayingInterval = setInterval(() => {
+          if (player.playing || player.paused) {
+            updateNowPlaying(player);
+          } else {
+            clearInterval(player.nowPlayingInterval);
+            player.nowPlayingInterval = null;
+          }
+        }, MIN_UI_UPDATE_INTERVAL);
       }
 
-      // Create a collector for button interactions on the message
+      // Create collector for button interactions
       const collector = player.nowPlayingMessage.createMessageComponentCollector();
       player.nowPlayingCollector = collector;
 
-      collector.on("collect", async (interaction) => {
+      collector.on("collect", async interaction => {
         if (!interaction.isButton()) return;
         await interaction.deferUpdate();
-        logger.debug(`[nowPlayingManager] Guild="${interaction.guildId}" - Button "${interaction.customId}" pressed.`);
+        logger.debug(`[nowPlayingManager] Button "${interaction.customId}" pressed in Guild=${interaction.guildId}.`);
 
-        // Special handling for the "stop" button
-        if (interaction.customId === "stop") {
-          const confirmRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId("confirmStop")
-              .setLabel("Confirm Stop")
-              .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-              .setCustomId("cancelStop")
-              .setLabel("Cancel")
-              .setStyle(ButtonStyle.Secondary)
-          );
-          if (player.nowPlayingMessage) {
-            await player.nowPlayingMessage.edit({
-              components: [confirmRow]
-            });
+        switch (interaction.customId) {
+          case "stop": {
+            // Stop confirmation
+            const confirmRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId("confirmStop")
+                .setLabel("Confirm Stop")
+                .setStyle(ButtonStyle.Danger),
+              new ButtonBuilder()
+                .setCustomId("cancelStop")
+                .setLabel("Cancel")
+                .setStyle(ButtonStyle.Secondary)
+            );
+            await player.nowPlayingMessage.edit({ components: [confirmRow] });
+            player.stopConfirmationTimeout = setTimeout(async () => {
+              await restoreOriginalUI();
+            }, 10000);
+            break;
           }
-          // Set a timeout to restore the original UI after 10 seconds
-          const timeoutId = setTimeout(async () => {
-            await restoreOriginalUI();
-          }, 10000);
-          player.stopConfirmationTimeout = timeoutId;
-        } 
-        // Confirm Stop
-        else if (interaction.customId === "confirmStop") {
-          if (player.stopConfirmationTimeout) {
+
+          case "confirmStop":
             clearTimeout(player.stopConfirmationTimeout);
-            player.stopConfirmationTimeout = null;
-          }
-          try {
             await performStop(player);
             collector.stop();
-          } catch (error) {
-            logger.error("[nowPlayingManager] Error on 'confirmStop':", error);
-          }
-        } 
-        // Cancel Stop
-        else if (interaction.customId === "cancelStop") {
-          if (player.stopConfirmationTimeout) {
+            break;
+
+          case "cancelStop":
             clearTimeout(player.stopConfirmationTimeout);
-            player.stopConfirmationTimeout = null;
-          }
-          await restoreOriginalUI();
-        } 
-        // Previous track
-        else if (interaction.customId === "previous") {
-          try {
-            const previousTrack = await player.queue.shiftPrevious();
-            if (!previousTrack) {
-              await sendOrUpdateNowPlayingUI(player, channel);
-              return;
-            }
-            if (player.queue.current) {
-              player.queue.tracks.unshift(player.queue.current);
-            }
-            player.queue.current = previousTrack;
-            await player.play({ clientTrack: previousTrack });
-            await sendOrUpdateNowPlayingUI(player, channel);
-          } catch (error) {
-            logger.error("[nowPlayingManager] Error on 'previous':", error);
-          }
-        } 
-        // Toggle Play/Pause
-        else if (interaction.customId === "playpause") {
-          try {
-            await togglePlayPause(player);
-            if (!player.paused && player.playing) {
-              startNowPlayingInterval();
-            }
-            await sendOrUpdateNowPlayingUI(player, channel);
-          } catch (error) {
-            logger.error("[nowPlayingManager] Error on 'playpause':", error);
-          }
-        } 
-        // Skip track
-        else if (interaction.customId === "skip") {
-          try {
-            await performSkip(player);
-            await new Promise(resolve => setTimeout(resolve, 500));
-            await sendOrUpdateNowPlayingUI(player, channel);
-          } catch (error) {
-            logger.error("[nowPlayingManager] Error on 'skip':", error);
-          }
-        } 
-        // Shuffle queue
-        else if (interaction.customId === "shuffle") {
-          try {
-            function shuffle(array) {
-              for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
+            await restoreOriginalUI();
+            break;
+
+          case "previous":
+            try {
+              const prev = await player.queue.shiftPrevious();
+              if (prev) {
+                if (player.queue.current) player.queue.tracks.unshift(player.queue.current);
+                player.queue.current = prev;
+                await player.play({ clientTrack: prev });
+                await sendOrUpdateNowPlayingUI(player, channel);
               }
+            } catch (err) {
+              logger.error("[nowPlayingManager] Error on 'previous':", err);
             }
-            shuffle(player.queue.tracks);
-            logger.debug(`[nowPlayingManager] [shuffle] Shuffled queue for Guild="${player.guildId}"`);
-            await sendOrUpdateNowPlayingUI(player, channel);
-          } catch (error) {
-            logger.error("[nowPlayingManager] Error on 'shuffle':", error);
-          }
+            break;
+
+          case "playpause":
+            try {
+              await togglePlayPause(player);
+              await sendOrUpdateNowPlayingUI(player, channel);
+            } catch (err) {
+              logger.error("[nowPlayingManager] Error on 'playpause':", err);
+            }
+            break;
+
+          case "skip":
+            try {
+              await performSkip(player);
+              setTimeout(() => sendOrUpdateNowPlayingUI(player, channel), 500);
+            } catch (err) {
+              logger.error("[nowPlayingManager] Error on 'skip':", err);
+            }
+            break;
+
+          case "shuffle":
+            try {
+              // Fisher-Yates shuffle
+              for (let i = player.queue.tracks.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [player.queue.tracks[i], player.queue.tracks[j]] = [player.queue.tracks[j], player.queue.tracks[i]];
+              }
+              await sendOrUpdateNowPlayingUI(player, channel);
+            } catch (err) {
+              logger.error("[nowPlayingManager] Error on 'shuffle':", err);
+            }
+            break;
         }
-        updateNowPlaying(player);
       });
 
       collector.on("end", () => {
@@ -212,37 +188,28 @@ export async function sendOrUpdateNowPlayingUI(player, channel) {
         }
       });
 
-      // Function to restore the original UI
+      // Restore UI after cancel or end of confirmation
       async function restoreOriginalUI() {
-        const embed = generateNowPlayingEmbed(player);
-        if (!embed) return;
-        const buttonRow = createButtonRow(player);
-        if (player.nowPlayingMessage) {
-          await player.nowPlayingMessage.edit({
-            content: null,
-            embeds: [embed],
-            components: [buttonRow]
-          });
-        }
+        const e = generateNowPlayingEmbed(player);
+        if (!e) return;
+        const row = createButtonRow(player);
+        await player.nowPlayingMessage.edit({ embeds: [e], components: [row] }).catch(() => {});
       }
+
     } else {
-      // Update existing message with new embed and buttons
-      const buttonRow = createButtonRow(player);
-      if (player.nowPlayingMessage) {
-        await player.nowPlayingMessage.edit({
-          embeds: [embed],
-          components: [buttonRow]
-        }).catch(() => {});
-      }
+      // Update existing message
+      await player.nowPlayingMessage.edit({
+        embeds:     [embed],
+        components: [buttonRow]
+      }).catch(() => {});
     }
   } catch (err) {
-    logger.error("[nowPlayingManager] Error in sendOrUpdateNowPlayingUI:", err);
+    logger.error("[nowPlayingManager] sendOrUpdateNowPlayingUI Error:", err);
     if (player.nowPlayingMessage) {
-      try {
-        await player.nowPlayingMessage.delete();
-      } catch (_) {}
+      try { await player.nowPlayingMessage.delete(); } catch {}
       player.nowPlayingMessage = null;
     }
   }
+
   return player.nowPlayingMessage;
 }
