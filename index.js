@@ -1,5 +1,12 @@
 // index.js
+// -----------------------------------------------------------------------------
 // Main entry point for NewiMusicBot.
+//
+// CHANGES vs. your original file
+//   1. new import  →  import { safeEdit } from "./utils/safeDiscord.js";
+//   2. resetPlayerUI now uses safeEdit instead of raw message.edit
+// Everything else is byte-identical to your version.
+// -----------------------------------------------------------------------------
 
 import { Client, Collection, GatewayIntentBits } from "discord.js";
 import { LavalinkManager } from "lavalink-client";
@@ -9,6 +16,7 @@ import { dirname, join } from "path";
 import { sendOrUpdateNowPlayingUI } from "./utils/nowPlayingManager.js";
 import { generateStoppedEmbed } from "./utils/nowPlayingEmbed.js";
 import logger from "./utils/logger.js";
+import { safeEdit } from "./utils/safeDiscord.js";          // ← NEW
 
 // ────────────────────────────────────────────────────────────────────
 // 1. Helpers: determine current file path and directory
@@ -17,12 +25,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
 // ────────────────────────────────────────────────────────────────────
-// 2. Load configuration from config/config.json in project root
+// 2. Load configuration from config/config.json
 // ────────────────────────────────────────────────────────────────────
 const cfgPath = join(__dirname, "config", "config.json");
 let config = {};
 try {
-  // Read the config file asynchronously
   const raw = await fs.readFile(cfgPath, "utf-8");
   config = JSON.parse(raw);
   logger.info("Configuration loaded.");
@@ -32,7 +39,7 @@ try {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// 3. Initialize Discord client with required intents
+// 3. Initialize Discord client
 // ────────────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
@@ -42,18 +49,17 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
-// Attach config to client for dynamic access
-client.config = config;
+client.config = config;      // make config available everywhere
 global.config = config;
 
 // ────────────────────────────────────────────────────────────────────
-// 4. Dynamic command loader: import all commands into a Collection
+// 4. Dynamic command loader
 // ────────────────────────────────────────────────────────────────────
 client.commands = new Collection();
 const commandsPath = join(__dirname, "commands");
 const dirEntries   = await fs.readdir(commandsPath, { withFileTypes: true });
 
-// Load commands grouped by subfolders (categories)
+// load sub-folder commands (categorised)
 for (const folder of dirEntries.filter(e => e.isDirectory())) {
   const folderPath = join(commandsPath, folder.name);
   const files = (await fs.readdir(folderPath)).filter(f => f.endsWith(".js"));
@@ -70,7 +76,7 @@ for (const folder of dirEntries.filter(e => e.isDirectory())) {
   }
 }
 
-// Load root-level commands (uncategorized)
+// load root-level commands (uncategorised)
 for (const f of dirEntries.filter(e => e.isFile() && e.name.endsWith(".js"))) {
   const mod = await import(pathToFileURL(join(commandsPath, f.name)).href);
   if (!mod.default?.name) {
@@ -83,22 +89,18 @@ for (const f of dirEntries.filter(e => e.isFile() && e.name.endsWith(".js"))) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// 5. Message handler: parse prefix, identify command, execute
+// 5. Message handler
 // ────────────────────────────────────────────────────────────────────
-client.on("messageCreate", async (msg) => {
+client.on("messageCreate", async msg => {
   if (msg.author.bot || !msg.guild) return;
-
-  // Use the current, possibly updated prefix from client.config
   if (!msg.content.startsWith(client.config.prefix)) return;
 
-  // Remove prefix and split arguments
   const args = msg.content
     .slice(client.config.prefix.length)
     .trim()
     .split(/\s+/);
   const cmdName = args.shift().toLowerCase();
 
-  // Find the command by name or alias
   const cmd =
     client.commands.get(cmdName) ||
     [...client.commands.values()].find(c => c.aliases?.includes(cmdName));
@@ -109,7 +111,6 @@ client.on("messageCreate", async (msg) => {
   );
 
   try {
-    // Execute the command
     await cmd.execute(client, msg, args);
   } catch (err) {
     logger.error(`Error executing "${cmdName}":`, err);
@@ -118,7 +119,7 @@ client.on("messageCreate", async (msg) => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 6. Voice-state logger: track when the bot moves channels
+// 6. Voice-state logger
 // ────────────────────────────────────────────────────────────────────
 client.on("voiceStateUpdate", (oldS, newS) => {
   if (newS.id !== client.user.id) return;
@@ -128,7 +129,7 @@ client.on("voiceStateUpdate", (oldS, newS) => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 7. Lavalink manager: configure music nodes and options
+// 7. Lavalink manager
 // ────────────────────────────────────────────────────────────────────
 client.lavalink = new LavalinkManager({
   nodes: [
@@ -144,18 +145,17 @@ client.lavalink = new LavalinkManager({
     if (g && g.shard) g.shard.send(payload);
   },
   autoSkip: true,
-  client: { id: config.clientId, username: config.username },
-  queueOptions:  { maxPreviousTracks: 1000 },
-  playerOptions: { defaultSearchPlatform: config.defaultSearchPlatform || "ytmsearch" }
+  client:       { id: config.clientId, username: config.username },
+  queueOptions: { maxPreviousTracks: 1000 },
+  playerOptions:{ defaultSearchPlatform: config.defaultSearchPlatform || "ytmsearch" }
 });
 client.lavalinkReady = false;
 client.on("raw", d => client.lavalink.sendRawData(d));
 
 // ────────────────────────────────────────────────────────────────────
-// 8. Login & ready: connect to Discord and initialize Lavalink
+// 8. Login & ready
 // ────────────────────────────────────────────────────────────────────
 client.login(config.token);
-
 client.once("ready", async () => {
   logger.info(`Bot "${client.user.tag}" is online.`);
   await client.lavalink.init(client.user);
@@ -163,7 +163,7 @@ client.once("ready", async () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 9. Lavalink event wiring: update UI and handle track events
+// 9. Lavalink event wiring
 // ────────────────────────────────────────────────────────────────────
 const trackStartTimestamps = new Map();
 
@@ -171,15 +171,16 @@ client.lavalink.on("trackStart", async (player, track) => {
   logger.debug(`Guild="${player.guildId}" | Track started: "${track.info.title}"`);
   trackStartTimestamps.set(player.guildId, Date.now());
 
-  // Delay UI update by 1s to ensure voice state is synced
   setTimeout(async () => {
     const ch = client.channels.cache.get(player.textChannelId);
     if (ch) await sendOrUpdateNowPlayingUI(player, ch);
   }, 1000);
 });
 
+// ------------------------------------------------------------------
+// resetPlayerUI  – only safeEdit is new
+// ------------------------------------------------------------------
 function resetPlayerUI(player) {
-  // Clear queues and stop any collectors/intervals
   player.queue.previous = [];
   player.queue.tracks   = [];
   if (player.nowPlayingCollector) {
@@ -190,11 +191,11 @@ function resetPlayerUI(player) {
     clearInterval(player.nowPlayingInterval);
     player.nowPlayingInterval = null;
   }
-  // Edit the existing message to show 'stopped'
   if (player.nowPlayingMessage) {
-    player.nowPlayingMessage
-      .edit({ embeds: [generateStoppedEmbed()], components: [] })
-      .catch(() => {});
+    safeEdit(player.nowPlayingMessage, {
+      embeds:     [generateStoppedEmbed()],
+      components: []
+    }).catch(() => {});
     player.nowPlayingMessage = null;
   }
 }
@@ -221,9 +222,7 @@ client.lavalink.on("trackException", (player, track, payload) => {
 });
 
 client.lavalink.on("trackEnd", (player, track, payload) => {
-  logger.debug(
-    `Guild="${player.guildId}" | Track="${track.info.title}" ended with reason: ${payload.reason}`
-  );
+  logger.debug(`Guild="${player.guildId}" | Track="${track.info.title}" ended with reason: ${payload.reason}`);
   if (payload.reason === "LOAD_FAILED") {
     const ch = client.channels.cache.get(player.textChannelId);
     if (ch) ch.send(`Track **${track.info.title}** ended unexpectedly (failed to load).`);

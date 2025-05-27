@@ -1,21 +1,23 @@
 // utils/updateNowPlaying.js
-// Updates the "Now Playing" embed message with the current track status
+// -----------------------------------------------------------------------------
+// Re-renders the current “Now Playing” embed every 3 s.
+// Uses safeEdit() **without** logging flag to stay silent.
+// -----------------------------------------------------------------------------
 
-import { generateNowPlayingEmbed, generateStoppedEmbed } from "./nowPlayingEmbed.js";
+import {
+  generateNowPlayingEmbed,
+  generateStoppedEmbed
+} from "./nowPlayingEmbed.js";
+import { safeEdit } from "./safeDiscord.js";
 import logger from "./logger.js";
 
-/**
- * Updates the existing "Now Playing" message.
- *
- * @param {Object} player - The Lavalink player instance.
- */
 export function updateNowPlaying(player) {
   if (!player.nowPlayingMessage) return;
-  // Generate an updated embed based on whether a track is playing or not
+
   const embed = player.queue.current
     ? generateNowPlayingEmbed(player)
     : generateStoppedEmbed();
-  player.nowPlayingMessage.edit({ embeds: [embed] }).catch(err => {
-    logger.error(`[updateNowPlaying] Failed to update message for Guild="${player.guildId}":`, err);
-  });
+
+  safeEdit(player.nowPlayingMessage, { embeds: [embed] })
+    .catch(err => logger.error(`[updateNowPlaying] failed in guild ${player.guildId}:`, err));
 }

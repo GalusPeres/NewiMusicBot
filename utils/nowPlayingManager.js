@@ -1,8 +1,10 @@
 // utils/nowPlayingManager.js
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Manages the “Now Playing” UI message.  Robust against message deletions and
-// Discord 404s, keeps the UI alive for very long sessions.
-// Update-interval is throttled to 5 s; only real changes trigger a PATCH.
+// Discord 404s.  UI updates are throttled to 3 s; nur echte Änderungen lösen
+// einen PATCH aus.  safeEdit-Wrapper wird verwendet; nur reale PATCH-Operationen
+// loggen jetzt auf debug-Level (log-Flag = true).
+// -----------------------------------------------------------------------------
 
 import {
   ActionRowBuilder,
@@ -21,9 +23,10 @@ import {
 } from "./playerControls.js";
 import logger from "./logger.js";
 import { isDeepStrictEqual as isEqual } from "node:util";
+import { safeEdit, safeDelete } from "./safeDiscord.js";
 
 // Minimum time between two automatic UI updates (ms)
-const MIN_UI_UPDATE_INTERVAL = 5000;   // 5 s
+const MIN_UI_UPDATE_INTERVAL = 3_000;     // 3 s
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper – build the five control buttons
@@ -66,14 +69,15 @@ async function ensureNowPlayingMessage(player, channel) {
   const embed = generateNowPlayingEmbed(player);
   if (!embed) return null;               // nothing playing – nothing to show
 
-  const buttonRow = createButtonRow(player);
   player.nowPlayingMessage = await channel.send({
     embeds:     [embed],
-    components: [buttonRow]
+    components: [createButtonRow(player)]
   });
 
   registerCollector(player, channel);    // new message ⇒ new collector
-  logger.debug(`[nowPlayingManager] Fresh UI message created in Guild=${channel.guildId}.`);
+  logger.debug(
+    `[nowPlayingManager] fresh UI message created in guild ${channel.guildId}`
+  );
   return player.nowPlayingMessage;
 }
 
@@ -110,7 +114,7 @@ function registerCollector(player, channel) {
             .setLabel("Cancel")
             .setStyle(ButtonStyle.Secondary)
         );
-        await player.nowPlayingMessage.edit({ components: [confirmRow] });
+        await safeEdit(player.nowPlayingMessage, { components: [confirmRow] });
         player.stopConfirmationTimeout = setTimeout(
           () => restoreOriginalUI(player, interaction.channel),
           10_000
@@ -141,7 +145,7 @@ function registerCollector(player, channel) {
             await sendOrUpdateNowPlayingUI(player, interaction.channel);
           }
         } catch (err) {
-          logger.error("[nowPlayingManager] Error on 'previous':", err);
+          logger.error("Error on 'previous':", err);
         }
         break;
 
@@ -151,7 +155,7 @@ function registerCollector(player, channel) {
           await togglePlayPause(player);
           await sendOrUpdateNowPlayingUI(player, interaction.channel);
         } catch (err) {
-          logger.error("[nowPlayingManager] Error on 'playpause':", err);
+          logger.error("Error on 'playpause':", err);
         }
         break;
 
@@ -159,9 +163,12 @@ function registerCollector(player, channel) {
       case "skip":
         try {
           await performSkip(player);
-          setTimeout(() => sendOrUpdateNowPlayingUI(player, interaction.channel), 500);
+          setTimeout(
+            () => sendOrUpdateNowPlayingUI(player, interaction.channel),
+            500
+          );
         } catch (err) {
-          logger.error("[nowPlayingManager] Error on 'skip':", err);
+          logger.error("Error on 'skip':", err);
         }
         break;
 
@@ -175,14 +182,16 @@ function registerCollector(player, channel) {
           }
           await sendOrUpdateNowPlayingUI(player, interaction.channel);
         } catch (err) {
-          logger.error("[nowPlayingManager] Error on 'shuffle':", err);
+          logger.error("Error on 'shuffle':", err);
         }
         break;
     }
   });
 
   collector.on("end", () => {
-    player.nowPlayingMessage?.edit({ components: [] }).catch(() => {});
+    if (player.nowPlayingMessage) {
+      safeEdit(player.nowPlayingMessage, { components: [] }).catch(() => {});
+    }
   });
 }
 
@@ -191,18 +200,20 @@ async function restoreOriginalUI(player, channel) {
   const emb = generateNowPlayingEmbed(player) || generateStoppedEmbed();
   const row = createButtonRow(player);
   await ensureNowPlayingMessage(player, channel);
-  await player.nowPlayingMessage
-    .edit({ embeds: [emb], components: [row] })
-    .catch(() => {});
+  await safeEdit(player.nowPlayingMessage, { embeds: [emb], components: [row] });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Public – main entry: create or update UI, diff-checked & throttled
+// Public – create or update UI, diff-checked & throttled
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sendOrUpdateNowPlayingUI(player, channel) {
   const now = Date.now();
-  if (player._lastUIUpdate && now - player._lastUIUpdate < MIN_UI_UPDATE_INTERVAL) {
-    return player.nowPlayingMessage;   // too soon – skip
+  if (
+    player._lastUIUpdate &&
+    now - player._lastUIUpdate < MIN_UI_UPDATE_INTERVAL
+  ) {
+    logger.debug("[nowPlayingManager] throttled update skipped");
+    return player.nowPlayingMessage;
   }
   player._lastUIUpdate = now;
 
@@ -210,37 +221,44 @@ export async function sendOrUpdateNowPlayingUI(player, channel) {
   const msg = await ensureNowPlayingMessage(player, channel);
   if (!msg) return null;               // nothing playing
 
-  const embed      = generateNowPlayingEmbed(player);
-  const buttonRow  = createButtonRow(player);
-  const newData    = embed?.toJSON() || {};
+  const embed   = generateNowPlayingEmbed(player);
+  const newData = embed?.toJSON() || {};
 
   if (player._lastEmbedData && isEqual(player._lastEmbedData, newData)) {
-    return msg;                        // unchanged – no PATCH
+    logger.debug("[nowPlayingManager] embed unchanged – no PATCH");
+    return msg;
   }
   player._lastEmbedData = newData;
 
   try {
-    await msg.edit({ embeds: [embed], components: [buttonRow] });
+    // log=true → genau EIN Debug-Eintrag pro realem PATCH
+    await safeEdit(
+      msg,
+      { embeds: [embed], components: [createButtonRow(player)] },
+      false,
+      true
+    );
   } catch (err) {
-    // 10008 Unknown Message – message vanished
     if (err.code === 10008) {
-      logger.warn(`[nowPlayingManager] UI message lost (10008) in Guild=${channel.guildId}.`);
+      logger.warn(
+        `[nowPlayingManager] UI message lost (10008) in guild ${channel.guildId}`
+      );
       if (player.nowPlayingCollector) {
         player.nowPlayingCollector.stop();
         player.nowPlayingCollector = null;
       }
+      await safeDelete(player.nowPlayingMessage);
       player.nowPlayingMessage = null;
     } else {
-      logger.error("[nowPlayingManager] sendOrUpdateNowPlayingUI Error:", err);
+      logger.error("sendOrUpdateNowPlayingUI Error:", err);
     }
   }
 
-  // Auto-progress ticker (5 s) – keeps the time bar moving
+  // Auto-progress ticker (3 s) – silent
   if (!player.nowPlayingInterval) {
     player.nowPlayingInterval = setInterval(() => {
-      if (player.playing || player.paused) {
-        updateNowPlaying(player);
-      } else {
+      if (player.playing || player.paused) updateNowPlaying(player);
+      else {
         clearInterval(player.nowPlayingInterval);
         player.nowPlayingInterval = null;
       }
