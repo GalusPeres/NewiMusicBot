@@ -1,5 +1,5 @@
 # Verwende ein leichtgewichtiges Node.js-Image (z.B. Alpine)
-FROM node:18-alpine
+FROM node:24-alpine
 
 # Setze das Arbeitsverzeichnis im Container
 WORKDIR /app

@@ -1,33 +1,36 @@
 // utils/reconnectManager.js
-// Handles automatic reconnection to Lavalink nodes and cleanup on node disconnect
+// Manages automatic reconnection to Lavalink nodes and cleans up players when a node disconnects
 
 import logger from "./logger.js";
 import { performStop } from "./playerControls.js";
 import { generateStoppedEmbed } from "./nowPlayingEmbed.js";
 import { safeEdit } from "./safeDiscord.js";
+import { getVoiceConnection } from "@discordjs/voice";
 
 class LavalinkReconnectManager {
   constructor(client) {
     this.client = client;
     this.reconnectAttempts = new Map();
     this.maxReconnectAttempts = 5;
-    this.reconnectDelay = 5000; // initial backoff delay in ms
+    this.reconnectDelay = 5000;
   }
 
-  /**
-   * Initialize event listeners for Lavalink node lifecycle.
-   */
   initialize() {
     if (!this.client.lavalink) return;
 
-    // When a node disconnects, clean up players and schedule reconnect
+    // Prevent unhandled errors from bubbling up in the node manager
+    this.client.lavalink.nodeManager.on("error", (err, node) => {
+      logger.error(`[LavalinkReconnect] NodeManager error on ${node?.id}:`, err);
+    });
+
+    // When a node disconnects, clean up all players and schedule a reconnect
     this.client.lavalink.on("nodeDisconnect", (node, reason) => {
       logger.error(`[LavalinkReconnect] Node ${node.id} disconnected: ${reason}`);
       this._cleanupAllPlayers();
       this._scheduleReconnect(node);
     });
 
-    // Treat errors on disconnected nodes as disconnect events
+    // Treat node errors as disconnects if not connected
     this.client.lavalink.on("nodeError", (node, error) => {
       logger.error(`[LavalinkReconnect] Node ${node.id} error:`, error);
       if (!node.connected) {
@@ -36,101 +39,109 @@ class LavalinkReconnectManager {
       }
     });
 
-    // After a successful reconnect, restore player states
+    // After a node reconnects, restore all player states
     this.client.lavalink.on("nodeConnect", node => {
       logger.info(`[LavalinkReconnect] Node ${node.id} reconnected`);
       this.reconnectAttempts.delete(node.id);
       this._restorePlayerStates();
     });
 
-    // Periodic health check to detect silent outages
+    // Periodic health check for all nodes
     setInterval(() => {
-      this._checkNodeHealth().catch(error => {
-        logger.error("[LavalinkReconnect] Health check failed:", error);
+      this._checkNodeHealth().catch(err => {
+        logger.error("[LavalinkReconnect] Health check failed:", err);
       });
-    }, 30000);
+    }, 30_000);
   }
 
   /**
-   * Clean up all active players: stop playback, disconnect voice, update UI, destroy players.
+   * Stop playback, update UI, disconnect from voice, and remove players.
    */
   async _cleanupAllPlayers() {
     for (const [guildId, player] of this.client.lavalink.players) {
+      // 1) Stop playback and clear the queue (with UI update)
       try {
-        // 1) Stop playback and clear the queue
         await performStop(player);
-
-        // 2) Disconnect the bot from Discord voice
-        const guild = this.client.guilds.cache.get(guildId);
-        const me = guild?.members.me;
-        if (me?.voice?.channel) {
-          await me.voice.disconnect("Cleanup after Lavalink node disconnect");
-          logger.info(`[LavalinkReconnect] Disconnected voice in guild ${guildId}`);
-        }
-
-        // 3) Update the Now Playing UI to show “stopped”
+      } catch (err) {
+        logger.warn(`[LavalinkReconnect] performStop failed for ${guildId}: ${err.message}`);
+        // Even if stopping fails, attempt to update the UI to “stopped”
         if (player.nowPlayingMessage) {
           await safeEdit(player.nowPlayingMessage, {
             embeds: [generateStoppedEmbed()],
             components: []
-          });
+          }).catch(e => logger.error(`[LavalinkReconnect] UI update failed: ${e.message}`));
           player.nowPlayingMessage = null;
         }
-
-        // 4) Destroy the Lavalink player instance and remove from cache
-        await player.destroy().catch(() => {});
-        this.client.lavalink.players.delete(guildId);
-        logger.info(`[LavalinkReconnect] Player cleaned up for guild ${guildId}`);
-      } catch (err) {
-        logger.error(`[LavalinkReconnect] Failed cleanup for guild ${guildId}:`, err);
       }
+
+      // 2) Ensure the “Now Playing” UI is updated to “stopped”
+      if (player.nowPlayingMessage) {
+        await safeEdit(player.nowPlayingMessage, {
+          embeds: [generateStoppedEmbed()],
+          components: []
+        }).catch(e => logger.error(`[LavalinkReconnect] UI update failed: ${e.message}`));
+        player.nowPlayingMessage = null;
+      }
+
+      // 3) Forcefully destroy any lingering Discord voice connection
+      try {
+        const connection = getVoiceConnection(guildId);
+        if (connection) {
+          connection.destroy();
+          logger.info(`[LavalinkReconnect] Destroyed voice connection in guild ${guildId}`);
+        }
+      } catch (e) {
+        logger.error(`[LavalinkReconnect] Could not destroy voice connection in ${guildId}:`, e);
+      }
+
+      // 4) Destroy the Lavalink player and remove it from the cache
+      try {
+        await player.destroy();
+      } catch {}
+      this.client.lavalink.players.delete(guildId);
+      logger.info(`[LavalinkReconnect] Player cleaned up for guild ${guildId}`);
     }
   }
 
   /**
-   * Schedule a reconnection attempt with exponential backoff.
-   * @param {LavalinkNode} node
+   * Schedule a reconnect attempt for the given node using exponential backoff.
    */
   _scheduleReconnect(node) {
     const attempts = this.reconnectAttempts.get(node.id) || 0;
     if (attempts >= this.maxReconnectAttempts) {
-      logger.error(`[LavalinkReconnect] Max reconnect attempts reached for node ${node.id}`);
+      logger.error(`[LavalinkReconnect] Maximum reconnect attempts reached for ${node.id}`);
       return;
     }
-
-    const delay = this.reconnectDelay * Math.pow(2, attempts);
+    const delay = this.reconnectDelay * 2 ** attempts;
     this.reconnectAttempts.set(node.id, attempts + 1);
-    logger.info(`[LavalinkReconnect] Scheduling reconnect for node ${node.id} in ${delay}ms (attempt ${attempts + 1})`);
-
+    logger.info(`[LavalinkReconnect] Scheduling reconnect for ${node.id} in ${delay}ms`);
     setTimeout(async () => {
       try {
-        if (!node.connected) {
-          await node.connect();
-        }
-      } catch (error) {
-        logger.error(`[LavalinkReconnect] Reconnect failed for node ${node.id}:`, error);
+        if (!node.connected) await node.connect();
+      } catch (err) {
+        logger.error(`[LavalinkReconnect] Reconnect failed for ${node.id}:`, err);
         this._scheduleReconnect(node);
       }
     }, delay);
   }
 
   /**
-   * Check the health of all nodes and trigger reconnect if any are down.
+   * Iterate through all nodes; if offline, cleanup players and reconnect.
    */
   async _checkNodeHealth() {
-    const nm = this.client.lavalink.nodeManager;
-    if (!nm?.nodes) return;
+    const manager = this.client.lavalink.nodeManager;
+    if (!manager?.nodes) return;
 
-    for (const node of nm.nodes.values()) {
+    for (const node of manager.nodes.values()) {
       if (!node.connected) {
-        logger.warn(`[LavalinkReconnect] Node ${node.id} appears offline`);
+        logger.warn(`[LavalinkReconnect] Node ${node.id} is offline`);
         this._cleanupAllPlayers();
         this._scheduleReconnect(node);
       } else {
         try {
           await node.fetchStats();
-        } catch (error) {
-          logger.error(`[LavalinkReconnect] Stats fetch failed for node ${node.id}:`, error);
+        } catch (err) {
+          logger.error(`[LavalinkReconnect] Stats fetch failed for ${node.id}:`, err);
           this._cleanupAllPlayers();
           this._scheduleReconnect(node);
         }
@@ -139,21 +150,21 @@ class LavalinkReconnectManager {
   }
 
   /**
-   * Restore players after a node reconnects: rejoin voice channels and resume playback.
+   * After node reconnection, rejoin voice channels and resume playback.
    */
   async _restorePlayerStates() {
-    logger.info("[LavalinkReconnect] Restoring player states after reconnect");
+    logger.info("[LavalinkReconnect] Restoring player states after reconnection");
     for (const [guildId, player] of this.client.lavalink.players) {
       try {
         if (player.voiceChannelId && !player.connected) {
           await player.connect();
           if (player.queue.current && !player.playing && !player.paused) {
             await player.play({ clientTrack: player.queue.current });
-            logger.debug(`[LavalinkReconnect] Resumed playback for guild ${guildId}`);
+            logger.debug(`[LavalinkReconnect] Resumed playback in guild ${guildId}`);
           }
         }
-      } catch (error) {
-        logger.error(`[LavalinkReconnect] Failed to restore player for guild ${guildId}:`, error);
+      } catch (err) {
+        logger.error(`[LavalinkReconnect] Failed to restore player for guild ${guildId}:`, err);
       }
     }
   }
