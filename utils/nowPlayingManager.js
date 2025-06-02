@@ -1,10 +1,5 @@
 // utils/nowPlayingManager.js
-// -----------------------------------------------------------------------------
-// Manages the “Now Playing” UI message.  Robust against message deletions and
-// Discord 404s.  UI updates are throttled to 3 s; nur echte Änderungen lösen
-// einen PATCH aus.  safeEdit-Wrapper wird verwendet; nur reale PATCH-Operationen
-// loggen jetzt auf debug-Level (log-Flag = true).
-// -----------------------------------------------------------------------------
+// Fixed version with Progress Bar fix for trackStart events
 
 import {
   ActionRowBuilder,
@@ -28,9 +23,7 @@ import { safeEdit, safeDelete } from "./safeDiscord.js";
 // Minimum time between two automatic UI updates (ms)
 const MIN_UI_UPDATE_INTERVAL = 3_000;     // 3 s
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Helper – build the five control buttons
-// ─────────────────────────────────────────────────────────────────────────────
 function createButtonRow(player) {
   const prevDisabled = !(player.queue.previous && player.queue.previous.length);
   const skipDisabled = !(player.queue.tracks   && player.queue.tracks.length);
@@ -60,9 +53,7 @@ function createButtonRow(player) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ensureNowPlayingMessage – returns a *valid* UI message, re-creates if lost
-// ─────────────────────────────────────────────────────────────────────────────
 async function ensureNowPlayingMessage(player, channel) {
   if (player.nowPlayingMessage) return player.nowPlayingMessage;
 
@@ -81,9 +72,7 @@ async function ensureNowPlayingMessage(player, channel) {
   return player.nowPlayingMessage;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // registerCollector – sets up (or replaces) the interaction collector
-// ─────────────────────────────────────────────────────────────────────────────
 function registerCollector(player, channel) {
   if (player.nowPlayingCollector) {
     player.nowPlayingCollector.stop();   // remove stale collector first
@@ -203,9 +192,7 @@ async function restoreOriginalUI(player, channel) {
   await safeEdit(player.nowPlayingMessage, { embeds: [emb], components: [row] });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Public – create or update UI, diff-checked & throttled
-// ─────────────────────────────────────────────────────────────────────────────
 export async function sendOrUpdateNowPlayingUI(player, channel) {
   const now = Date.now();
   if (
@@ -254,15 +241,22 @@ export async function sendOrUpdateNowPlayingUI(player, channel) {
     }
   }
 
-  // Auto-progress ticker (3 s) – silent
-  if (!player.nowPlayingInterval) {
+  // FINAL FIX: Auto-progress ticker - create interval even during trackStart
+  if (player.nowPlayingInterval) {
+    clearInterval(player.nowPlayingInterval);
+    player.nowPlayingInterval = null;
+  }
+  // CRITICAL: Also create interval if current track exists (fixes trackStart issue)
+  if (player.playing || player.paused || player.queue.current) {
     player.nowPlayingInterval = setInterval(() => {
-      if (player.playing || player.paused) updateNowPlaying(player);
-      else {
+      if (player.playing || player.paused) {
+        updateNowPlaying(player);
+      } else {
         clearInterval(player.nowPlayingInterval);
         player.nowPlayingInterval = null;
       }
     }, MIN_UI_UPDATE_INTERVAL);
+    logger.debug(`[nowPlayingManager] Started new update interval for guild ${channel.guildId}`);
   }
   return msg;
 }

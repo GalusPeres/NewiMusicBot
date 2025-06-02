@@ -168,7 +168,7 @@ export default {
         }
       }
 
-      // Update UI
+      // FIXED: Always update UI so buttons are correct after adding songs
       await sendOrUpdateNowPlayingUI(player, message.channel);
 
     } catch (error) {

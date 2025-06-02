@@ -231,12 +231,25 @@ client.once("ready", async () => {
   }
 });
 
-// -------------------- Track & Queue Events --------------------
+// -------------------- FIXED Track & Queue Events --------------------
 const trackStartTimes = new Map();
 
 client.lavalink.on("trackStart", async (player, track) => {
   logger.debug(`Track started in guild ${player.guildId}: ${track.info.title}`);
   trackStartTimes.set(player.guildId, Date.now());
+  
+  // CRITICAL FIX: Reset UI state completely for clean start
+  if (player.nowPlayingInterval) {
+    clearInterval(player.nowPlayingInterval);
+    player.nowPlayingInterval = null;
+    logger.debug(`[trackStart] Cleared existing interval for guild ${player.guildId}`);
+  }
+  
+  // CRITICAL: Reset UI tracking variables (fixes post-stop issues)
+  player._lastUIUpdate = null;
+  player._lastEmbedData = null;
+  player._pausedPosition = undefined;
+  
   setTimeout(async () => {
     try {
       const ch = client.channels.cache.get(player.textChannelId);
@@ -247,18 +260,41 @@ client.lavalink.on("trackStart", async (player, track) => {
   }, 1000);
 });
 
+// FIXED: resetPlayerUI function with complete state reset
 function resetPlayerUI(player) {
   try {
+    // Clear intervals and collectors first
+    if (player.nowPlayingInterval) {
+      clearInterval(player.nowPlayingInterval);
+      player.nowPlayingInterval = null;
+      logger.debug(`[resetPlayerUI] Cleared interval for guild ${player.guildId}`);
+    }
+    
+    if (player.nowPlayingCollector) {
+      player.nowPlayingCollector.stop();
+      player.nowPlayingCollector = null;
+      logger.debug(`[resetPlayerUI] Stopped collector for guild ${player.guildId}`);
+    }
+    
+    // CRITICAL FIX: Reset ALL UI state variables (fixes post-stop issues)
+    player._lastUIUpdate = null;
+    player._lastEmbedData = null;
+    player._pausedPosition = undefined;
+    player.uiRefreshing = false;
+    
+    // Clear queue
     player.queue.previous = [];
     player.queue.tracks   = [];
-    player.nowPlayingCollector?.stop();
-    clearInterval(player.nowPlayingInterval);
+    
+    // Update UI message to stopped state
     if (player.nowPlayingMessage) {
       player.nowPlayingMessage
         .edit({ embeds: [generateStoppedEmbed()], components: [] })
         .catch(() => {});
       player.nowPlayingMessage = null;
     }
+    
+    logger.debug(`[resetPlayerUI] Complete UI reset for guild ${player.guildId}`);
   } catch (err) {
     logger.error("Error resetting player UI:", err);
   }
