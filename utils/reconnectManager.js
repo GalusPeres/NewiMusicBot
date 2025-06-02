@@ -20,7 +20,11 @@ class LavalinkReconnectManager {
 
     // Prevent unhandled errors from bubbling up in the node manager
     this.client.lavalink.nodeManager.on("error", (err, node) => {
-      logger.error(`[LavalinkReconnect] NodeManager error on ${node?.id}:`, err);
+      if (node && node.id) {
+        logger.error(`[LavalinkReconnect] NodeManager error on ${node.id}:`, err);
+      } else {
+        logger.error(`[LavalinkReconnect] NodeManager error (no node provided):`, err);
+      }
     });
 
     // When a node disconnects, clean up all players and schedule a reconnect
@@ -74,6 +78,14 @@ class LavalinkReconnectManager {
         }
       }
 
+      // 1b) Explicitly disconnect the Lavalink player from the voice channel
+      try {
+        await player.disconnect(false);
+        logger.info(`[LavalinkReconnect] player.disconnect(false) called for guild ${guildId}`);
+      } catch (e) {
+        logger.error(`[LavalinkReconnect] Error in player.disconnect() for ${guildId}: ${e.message}`);
+      }
+
       // 2) Ensure the “Now Playing” UI is updated to “stopped”
       if (player.nowPlayingMessage) {
         await safeEdit(player.nowPlayingMessage, {
@@ -89,15 +101,19 @@ class LavalinkReconnectManager {
         if (connection) {
           connection.destroy();
           logger.info(`[LavalinkReconnect] Destroyed voice connection in guild ${guildId}`);
+        } else {
+          logger.debug(`[LavalinkReconnect] No active Discord connection found for ${guildId}`);
         }
       } catch (e) {
-        logger.error(`[LavalinkReconnect] Could not destroy voice connection in ${guildId}:`, e);
+        logger.error(`[LavalinkReconnect] Could not destroy voice connection in ${guildId}: ${e.message}`);
       }
 
       // 4) Destroy the Lavalink player and remove it from the cache
       try {
         await player.destroy();
-      } catch {}
+      } catch {
+        // ignore if destroy fails
+      }
       this.client.lavalink.players.delete(guildId);
       logger.info(`[LavalinkReconnect] Player cleaned up for guild ${guildId}`);
     }
