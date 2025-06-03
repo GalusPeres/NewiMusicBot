@@ -130,7 +130,7 @@ lavalink:
   plugins:
     # IMPORTANT: Keep this plugin updated! YouTube changes frequently
     # Check https://github.com/lavalink-devs/youtube-source for latest version
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.13.1"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.13.2"
       snapshot: false
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.4.1"
       repository: https://maven.lavalink.dev/releases
