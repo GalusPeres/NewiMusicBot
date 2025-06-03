@@ -378,17 +378,34 @@ function getTrackQualityScore(track) {
   return score;
 }
 
-// Enhanced player creation with performance optimizations (shared with play.js)
+// Enhanced player creation with performance optimizations - VOICE CHANNEL FIX
 async function getOrCreatePlayerOptimized(client, message, userVC) {
   try {
     let player = client.lavalink.getPlayer(message.guild.id);
     
-    // Clean up zombie players efficiently
-    if (player && !player.playing && !player.paused && player.voiceChannelId !== userVC.id) {
-      await player.destroy();
-      client.lavalink.players.delete(message.guild.id);
-      await new Promise(r => setTimeout(r, 100)); // Shorter wait for faster response
-      player = null;
+    // FIXED: Better voice channel switching logic
+    if (player && player.voiceChannelId !== userVC.id) {
+      logger.debug(`[getOrCreatePlayerOptimized] Voice channel switch: ${player.voiceChannelId} → ${userVC.id}`);
+      
+      // If player is idle, destroy and recreate (safer than switching)
+      if (!player.playing && !player.paused) {
+        await player.destroy();
+        client.lavalink.players.delete(message.guild.id);
+        await new Promise(r => setTimeout(r, 800)); // LONGER WAIT for cleanup
+        player = null;
+      } else {
+        // If playing, try to switch voice channel
+        try {
+          player.voiceChannelId = userVC.id;
+          await player.connect();
+        } catch (switchError) {
+          logger.warn(`[getOrCreatePlayerOptimized] Voice switch failed, recreating player:`, switchError);
+          await player.destroy();
+          client.lavalink.players.delete(message.guild.id);
+          await new Promise(r => setTimeout(r, 800));
+          player = null;
+        }
+      }
     }
 
     // Create new player if needed
@@ -404,20 +421,23 @@ async function getOrCreatePlayerOptimized(client, message, userVC) {
         applyVolumeAsFilter: false
       });
       
-      // Connect with shorter timeout for faster response
+      // FIXED: Better connection with retry
       const connectTimeout = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Connection timeout')), client.config.connectionTimeout || 7000)
       );
       
-      await Promise.race([player.connect(), connectTimeout]);
-    } else {
-      // Update existing player efficiently
-      if (player.voiceChannelId !== userVC.id) {
-        player.voiceChannelId = userVC.id;
-        await player.connect();
-      } else if (!player.connected) {
+      try {
+        await Promise.race([player.connect(), connectTimeout]);
+        logger.debug(`[getOrCreatePlayerOptimized] Successfully connected to ${userVC.id}`);
+      } catch (connectError) {
+        logger.error(`[getOrCreatePlayerOptimized] Connection failed, retrying once:`, connectError);
+        // ONE RETRY
+        await new Promise(r => setTimeout(r, 1000));
         await player.connect();
       }
+    } else if (!player.connected) {
+      // Reconnect if disconnected
+      await player.connect();
     }
 
     // Ensure volume is set optimally
