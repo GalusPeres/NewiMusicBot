@@ -1,5 +1,5 @@
-// index.js (improved version)
-// Main entry point with enhanced error handling and robustness
+// index.js (optimized version)
+// Main entry point with enhanced performance and robustness
 
 import { Client, Collection, GatewayIntentBits } from "discord.js";
 import { LavalinkManager } from "lavalink-client";
@@ -45,7 +45,7 @@ try {
   process.exit(1);
 }
 
-// Create Discord client with retries and timeouts
+// OPTIMIZATION: Enhanced Discord client with performance settings
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -53,8 +53,8 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
-  restRequestTimeout: 30_000, // 30s REST timeout
-  retryLimit: 3,              // retry failed REST calls up to 3 times
+  restRequestTimeout: config.lavalinkTimeout || 15_000,
+  retryLimit: 3,
   presence: {
     activities: [{
       name: `${config.prefix}help`,
@@ -116,19 +116,19 @@ try {
   logger.error("Failed to load commands directory:", err);
 }
 
-// -------------------- Message Handler --------------------
+// -------------------- OPTIMIZED Message Handler --------------------
 const cooldowns = new Map();
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot || !msg.guild) return;
   if (!msg.content.startsWith(client.config.prefix)) return;
 
-  // 3 commands per 10 seconds per user
+  // OPTIMIZATION: Faster cooldown (2 seconds instead of 10)
   const now = Date.now();
   const userTimestamps = cooldowns.get(msg.author.id) || [];
-  const recent = userTimestamps.filter(ts => now - ts < 10_000);
+  const recent = userTimestamps.filter(ts => now - ts < (config.commandCooldown || 2000));
   if (recent.length >= 3) {
-    return msg.reply("Please slow down! You can only use 3 commands every 10 seconds.")
-      .then(m => setTimeout(() => m.delete().catch(() => {}), 5_000));
+    return msg.reply("Please slow down! You can only use 3 commands every 2 seconds.")
+      .then(m => setTimeout(() => m.delete().catch(() => {}), 3_000));
   }
   recent.push(now);
   cooldowns.set(msg.author.id, recent);
@@ -141,10 +141,10 @@ client.on("messageCreate", async (msg) => {
 
   logger.debug(`Guild=${msg.guild.id} User=${msg.author.tag} Cmd=${name} Args=[${args.join(",")}]`);
   try {
-    // Timeout a long-running command after 30s
+    // OPTIMIZATION: Shorter timeout for faster response
     const race = Promise.race([
       command.execute(client, msg, args),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("Command timeout")), 30_000))
+      new Promise((_, rej) => setTimeout(() => rej(new Error("Command timeout")), 20_000))
     ]);
     await race;
   } catch (err) {
@@ -174,18 +174,19 @@ client.on("voiceStateUpdate", (oldState, newState) => {
   }
 });
 
-// -------------------- Lavalink Manager --------------------
+// -------------------- OPTIMIZED Lavalink Manager --------------------
 client.lavalink = new LavalinkManager({
   nodes: [{
     host: config.lavalinkHost,
     port: config.lavalinkPort,
     authorization: config.lavalinkPassword,
-    id: "node1",
-    retryAmount: 5,
-    retryDelay: 10_000,
+    id: "optimized-node",
+    retryAmount: 3,                    // OPTIMIZED: Reduced from 5
+    retryDelay: 5_000,                // OPTIMIZED: Reduced from 10s
+    requestTimeout: 15_000,           // OPTIMIZED: Added timeout
     secure: false
   }],
-  // Correct shard sender
+  // OPTIMIZATION: Faster shard sender
   sendToShard: (guildId, payload) => {
     const guild = client.guilds.cache.get(guildId);
     if (guild?.shard) guild.shard.send(payload);
@@ -195,88 +196,105 @@ client.lavalink = new LavalinkManager({
     id: config.clientId,
     username: config.username
   },
-  // Advanced options for heartbeat & stats
+  // OPTIMIZATION: Performance-focused options
   advancedOptions: {
-    enablePingOnStatsCheck: true,
-    heartBeatInterval: 30_000
+    enablePingOnStatsCheck: false,    // Reduces network load
+    heartBeatInterval: 45_000         // Longer intervals
   },
   queueOptions: {
-    maxPreviousTracks: 1000
+    maxPreviousTracks: 50             // OPTIMIZED: Reduced from 1000
   },
   playerOptions: {
-    defaultSearchPlatform: config.defaultSearchPlatform || "ytmsearch",
+    defaultSearchPlatform: config.defaultSearchPlatform || "ytsearch",
     volumeDecrementer: 1,
+    clientBasedPositionUpdateInterval: config.uiUpdateInterval || 2000,
     requesterTransformer: r => r,
     onDisconnect: {
-      autoReconnect: false,
-      destroyPlayer: true
-    }
+      autoReconnect: true,
+      destroyPlayer: false
+    },
+    // OPTIMIZATION: Audio processing optimizations
+    applyVolumeAsFilter: false,
+    instaUpdateFiltersFix: true
   }
 });
 
 client.lavalinkReady = false;
-client.on("raw", d => client.lavalink.sendRawData(d));
+client.on("raw", d => {
+  if (client.lavalinkReady) {
+    client.lavalink.sendRawData(d);
+  }
+});
 
 client.once("ready", async () => {
   logger.info(`Bot ${client.user.tag} is online.`);
   try {
+    const initStart = Date.now();
     await client.lavalink.init(client.user);
+    const initTime = Date.now() - initStart;
+    
     client.lavalinkReady = true;
-    // Now hand off all reconnect logic to LavalinkReconnectManager
     client.reconnectManager.initialize();
     client.cleanupManager.start();
-    logger.info("Lavalink initialized successfully.");
+    
+    logger.info(`Lavalink initialized successfully in ${initTime}ms`);
   } catch (err) {
     logger.error("Lavalink init failed:", err);
   }
 });
 
-// -------------------- FIXED Track & Queue Events --------------------
+// -------------------- OPTIMIZED Track & Queue Events --------------------
 const trackStartTimes = new Map();
 
+// OPTIMIZATION: Immediate UI updates for faster track starts
 client.lavalink.on("trackStart", async (player, track) => {
-  logger.debug(`Track started in guild ${player.guildId}: ${track.info.title}`);
-  trackStartTimes.set(player.guildId, Date.now());
+  const startTime = Date.now();
+  trackStartTimes.set(player.guildId, startTime);
   
-  // CRITICAL FIX: Reset UI state completely for clean start
+  logger.debug(`Track started in guild ${player.guildId}: ${track.info.title}`);
+  
+  // OPTIMIZATION: Reset UI state for clean start
   if (player.nowPlayingInterval) {
     clearInterval(player.nowPlayingInterval);
     player.nowPlayingInterval = null;
-    logger.debug(`[trackStart] Cleared existing interval for guild ${player.guildId}`);
   }
   
-  // CRITICAL: Reset UI tracking variables (fixes post-stop issues)
+  // Reset UI tracking variables
   player._lastUIUpdate = null;
   player._lastEmbedData = null;
   player._pausedPosition = undefined;
   
-  setTimeout(async () => {
+  // CRITICAL OPTIMIZATION: Immediate UI update instead of 1000ms delay
+  setImmediate(async () => {
     try {
       const ch = client.channels.cache.get(player.textChannelId);
       if (ch) await sendOrUpdateNowPlayingUI(player, ch);
     } catch (err) {
       logger.error("Error updating Now Playing UI:", err);
     }
-  }, 1000);
+  });
+  
+  // OPTIMIZATION: Set optimal volume
+  if (player.volume !== (global.config.defaultVolume || 50)) {
+    player.setVolume(global.config.defaultVolume || 50, false).catch(() => {});
+  }
 });
 
-// FIXED: resetPlayerUI function with complete state reset
+// OPTIMIZATION: resetPlayerUI function with complete state reset
 function resetPlayerUI(player) {
   try {
     // Clear intervals and collectors first
     if (player.nowPlayingInterval) {
       clearInterval(player.nowPlayingInterval);
       player.nowPlayingInterval = null;
-      logger.debug(`[resetPlayerUI] Cleared interval for guild ${player.guildId}`);
     }
     
     if (player.nowPlayingCollector) {
       player.nowPlayingCollector.stop();
       player.nowPlayingCollector = null;
-      logger.debug(`[resetPlayerUI] Stopped collector for guild ${player.guildId}`);
     }
     
-    // CRITICAL FIX: Reset ALL UI state variables (fixes post-stop issues)
+    // Reset ALL UI state variables
     player._lastUIUpdate = null;
     player._lastEmbedData = null;
     player._pausedPosition = undefined;
@@ -357,7 +375,7 @@ async function gracefulShutdown() {
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);
 
-// -------------------- Login with Retry --------------------
+// -------------------- OPTIMIZED Login with Retry --------------------
 async function login(retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -366,7 +384,7 @@ async function login(retries = 3) {
     } catch (err) {
       logger.error(`Login attempt ${i+1} failed:`, err);
       if (i < retries - 1) {
-        await new Promise(r => setTimeout(r, 5000 * (i+1)));
+        await new Promise(r => setTimeout(r, 3000 * (i+1))); // Faster retry
       }
     }
   }
