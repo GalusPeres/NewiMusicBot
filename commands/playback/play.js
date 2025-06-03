@@ -1,5 +1,5 @@
-// commands/playback/play.js (performance optimized version)
-// Play command with enhanced performance and faster track starts
+// commands/playback/play.js (fixed version)
+// Play command with clean and reliable search logic
 
 import { EmbedBuilder } from "discord.js";
 import { sendOrUpdateNowPlayingUI } from "../../utils/nowPlayingManager.js";
@@ -41,19 +41,40 @@ export default {
     try {
       logger.debug(`[play] ${message.author.tag} requested "${query}" in VC=${userVC.id}`);
 
-      // Determine search mode
+      // FIXED: Clean and reliable search mode detection
       const invoked = message.content
         .slice(client.config.prefix.length)
         .split(" ")[0]
         .toLowerCase();
-      const forced = invoked === "playm" ? "ytmsearch" : invoked === "playyt" ? "ytsearch" : null;
 
+      let mode;
+      let forceMode = false;
+
+      // Handle URLs first
       const isUrl = /^https?:\/\//.test(query);
-      const isSpotify = isUrl && query.includes("spotify.com");
-      const mode = isUrl
-        ? isSpotify ? "ytmsearch" : "ytsearch"
-        : forced || client.config.defaultSearchPlatform;
+      if (isUrl) {
+        const isSpotify = query.includes("spotify.com");
+        mode = isSpotify ? "ytmsearch" : "ytsearch";
+        forceMode = true;
+        logger.debug(`[play] URL detected: ${isSpotify ? 'Spotify' : 'Direct'} → Mode: ${mode}`);
+      } else {
+        // Handle search commands
+        if (invoked === "playm") {
+          mode = "ytmsearch";
+          forceMode = true;
+        } else if (invoked === "playyt") {
+          mode = "ytsearch";
+          forceMode = true;
+        } else {
+          mode = client.config.defaultSearchPlatform || "ytsearch";
+          forceMode = false;
+        }
+      }
+
       const finalQuery = isUrl ? query : `${mode}:${query}`;
+      
+      // DEBUG LOG - Shows search mode decision process
+      logger.debug(`[play] Command: "${invoked}" → Mode: "${mode}" → Forced: ${forceMode} → Query: "${finalQuery}"`);
 
       // Get or create player with enhanced performance
       let player = await getOrCreatePlayerOptimized(client, message, userVC);
@@ -67,8 +88,8 @@ export default {
         await preWarmPlayer(player);
       }
 
-      // Perform search with caching and quality checking
-      const res = await performOptimizedSearch(player, finalQuery, mode, message.author, query);
+      // Perform search with reliable logic (NO AUTOMATIC RETRY TO OTHER PLATFORM)
+      const res = await performReliableSearch(player, finalQuery, mode, message.author, query, forceMode);
       if (!res) {
         await loadingMsg.delete().catch(() => {});
         return message.reply("No tracks found for that query. Try a different search term.");
@@ -165,15 +186,16 @@ async function preWarmPlayer(player) {
   }
 }
 
-// Enhanced search with caching and quality checking
-async function performOptimizedSearch(player, finalQuery, mode, author, originalQuery) {
+// FIXED: Reliable search without automatic platform switching
+async function performReliableSearch(player, finalQuery, mode, author, originalQuery, forceMode) {
   const searchKey = `${player.guildId}-${originalQuery}`;
   const retryCount = searchRetries.get(searchKey) || 0;
 
-  // Check cache first for performance
-  const cached = trackQualityCache.get(originalQuery);
+  // FIXED: Cache key includes mode to separate YouTube vs YouTube Music results
+  const cacheKey = `${mode}:${originalQuery}`;
+  const cached = trackQualityCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < (global.config.cacheTTL * 1000 || 300000)) {
-    logger.debug("[performOptimizedSearch] Using cached result");
+    logger.debug(`[performReliableSearch] Using cached result for ${cacheKey}`);
     return cached.result;
   }
 
@@ -181,31 +203,41 @@ async function performOptimizedSearch(player, finalQuery, mode, author, original
   try {
     res = await player.search({ query: finalQuery, source: mode }, author);
     
-    // Cache good results for future use
+    // Cache good results with mode-specific key
     if (res?.tracks?.length && global.config.cacheSearchResults !== false) {
-      trackQualityCache.set(originalQuery, {
+      trackQualityCache.set(cacheKey, {
         result: res,
         timestamp: Date.now()
       });
+      logger.debug(`[performReliableSearch] Cached result for ${cacheKey}`);
     }
-  } catch (searchError) {
-    logger.error("[performOptimizedSearch] Search error:", searchError);
     
-    // Retry with alternative search if first attempt fails
-    if (retryCount < 2) {
+    logger.debug(`[performReliableSearch] Search successful with ${mode}: ${res?.tracks?.length || 0} tracks`);
+  } catch (searchError) {
+    logger.error(`[performReliableSearch] Search error with ${mode}:`, searchError);
+    
+    // ONLY retry with alternative platform if mode was not forced and we haven't retried yet
+    if (!forceMode && retryCount < 1) {
       searchRetries.set(searchKey, retryCount + 1);
       
-      // Try alternative search platform
+      // Try alternative search platform ONLY if not forced
       const altMode = mode === "ytsearch" ? "ytmsearch" : "ytsearch";
-      const altQuery = finalQuery.replace(mode, altMode);
+      const altQuery = `${altMode}:${originalQuery}`;
+      
+      logger.info(`[performReliableSearch] Trying fallback search with ${altMode}`);
       
       try {
         res = await player.search({ query: altQuery, source: altMode }, author);
-        logger.info(`[performOptimizedSearch] Retry successful with ${altMode}`);
+        logger.info(`[performReliableSearch] Fallback successful with ${altMode}: ${res?.tracks?.length || 0} tracks`);
       } catch (retryError) {
+        logger.error(`[performReliableSearch] Fallback also failed:`, retryError);
         throw retryError;
       }
     } else {
+      // If forced mode or already retried, don't try alternatives
+      if (forceMode) {
+        logger.warn(`[performReliableSearch] Forced mode ${mode} failed, not trying alternatives`);
+      }
       throw searchError;
     }
   }
@@ -246,27 +278,22 @@ async function processSearchResults(res) {
   return { tracks, confirmation };
 }
 
-// Check if track is playable with quality filters
+// Check if track is playable with quality filters - RELAXED FILTERS
 function isTrackPlayable(track) {
   if (!track || !track.info) return false;
   
-  // Basic availability checks
-  if (track.info.isSeekable === false || track.info.isStream === true) {
+  // Only filter livestreams, not isSeekable
+  if (track.info.isStream === true) {
     return false;
   }
   
-  // Duration checks (skip very short or very long tracks)
+  // Relaxed duration filters
   const duration = track.info.duration;
-  if (duration < 10000 || duration > 3600000) { // 10s - 1h
+  if (duration < 3000 || duration > 7200000) { // 3s - 2h
     return false;
   }
   
-  // Additional quality checks
-  if (track.info.title?.toLowerCase().includes("unavailable")) {
-    return false;
-  }
-  
-  return true;
+  return true; // Allow everything else
 }
 
 // Rate track quality for sorting
@@ -351,25 +378,27 @@ setInterval(() => {
   const maxCacheSize = global.config.maxCacheSize || 500;
   const cacheEntries = Array.from(trackQualityCache.entries());
   
-  // Remove old entries
+  // Remove old entries by timestamp
   for (const [key, data] of cacheEntries) {
     if (now - data.timestamp > (global.config.cacheTTL * 1000 || 600000)) { // 10 minutes default
       trackQualityCache.delete(key);
+      logger.debug(`[cleanup] Removed expired cache entry: ${key}`);
     }
   }
   
-  // Limit cache size
+  // Limit cache size by removing oldest entries
   if (cacheEntries.length > maxCacheSize) {
     const sortedEntries = cacheEntries
-      .sort((a, b) => b[1].timestamp - a[1].timestamp)
-      .slice(maxCacheSize);
+      .sort((a, b) => a[1].timestamp - b[1].timestamp) // Oldest first
+      .slice(0, cacheEntries.length - maxCacheSize); // Take excess entries
     
     for (const [key] of sortedEntries) {
       trackQualityCache.delete(key);
+      logger.debug(`[cleanup] Removed cache entry due to size limit: ${key}`);
     }
   }
   
-  // Clean up retry attempts
+  // Clean up retry attempts older than 5 minutes
   for (const [key, timestamp] of searchRetries.entries()) {
     if (now - timestamp > 300000) { // 5 minutes
       searchRetries.delete(key);
