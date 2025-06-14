@@ -5,7 +5,7 @@ A high-performance Discord music bot with interactive controls, progress bars, a
 ## Features
 
 - **High Performance**: Optimized for fast track starts and smooth playback
-- **Interactive UI**: Progress bars and button controls
+- **Interactive UI**: Progress bars and button controls with customizable emojis
 - **Multiple Sources**: YouTube, YouTube Music, Spotify links (converted to YouTube)
 - **Queue Management**: View, shuffle, skip, and manage your music queue
 - **Smart Caching**: Reduces API calls and improves response times
@@ -112,6 +112,67 @@ A high-performance Discord music bot with interactive controls, progress bars, a
 | `maxConcurrentSearches` | `3` | Max simultaneous search operations per guild |
 | `maxQueueSize` | `1000` | Maximum number of tracks allowed in queue |
 | `maxPreviousTracks` | `50` | Maximum number of previous tracks to remember |
+
+## Custom Button Emojis (Optional)
+
+By default, the bot uses clean text labels for buttons: **"|◀"**, **"▶||"**, **"▶|"**, **"■"**, **"Shuffle"**
+
+### Adding Your Own Custom Emojis
+
+**Step 1: Create Custom Emojis in Discord**
+
+1. Go to your Discord Server Settings → Emoji
+2. Upload emoji images for each button:
+   - `previous` - Previous track button
+   - `playpause` - Play/pause button  
+   - `skip` - Skip track button
+   - `shuffle` - Shuffle button
+   - `stop` - Stop button
+   - `yt` - YouTube icon (used in setconfig)
+   - `ytm` - YouTube Music icon (used in setconfig)
+
+**Step 2: Get Emoji IDs**
+
+1. In Discord, type `\:emoji_name:` (e.g., `\:previous:`)
+2. Discord will show: `<:previous:1234567890123456789>`
+3. Copy the number part: `1234567890123456789`
+
+**Step 3: Add to Config**
+
+Add the `emojiIds` section to your `config.json`:
+
+```json
+{
+  "token": "YOUR_BOT_TOKEN",
+  "clientId": "YOUR_CLIENT_ID",
+  
+  "emojiIds": {
+    "previous": "1234567890123456789",
+    "playpause": "1234567890123456789",
+    "skip": "1234567890123456789", 
+    "shuffle": "1234567890123456789",
+    "stop": "1234567890123456789",
+    "yt": "1234567890123456789",
+    "ytm": "1234567890123456789"
+  }
+}
+```
+
+**Step 4: Restart Bot**
+
+The bot will now use your custom emojis! If any emoji ID is invalid or missing, it falls back to text labels.
+
+### Button Fallbacks
+
+| Button | Custom Emoji | Text Fallback |
+|--------|-------------|---------------|
+| Previous | Your custom emoji | `\|◀` |
+| Play/Pause | Your custom emoji | `▶\|\|` |
+| Skip | Your custom emoji | `▶\|` |
+| Shuffle | Your custom emoji | `Shuffle` |
+| Stop | Your custom emoji | `■` |
+
+**Note:** Custom emojis only work if the bot has access to them (same server or application). Text fallbacks ensure the bot works everywhere.
 
 ## Lavalink Server
 
@@ -328,6 +389,13 @@ docker run -d \
 4. Fill in app name and description (anything works)
 5. Copy the "Client ID" and "Client Secret"
 6. Paste them into your application.yml
+
+### Custom Emoji Issues
+**Buttons showing text instead of emojis?**
+- Check that emoji IDs are correct in your `config.json`
+- Verify the bot has access to the emojis (same server or application)
+- Test with `\:emoji_name:` in Discord to get the correct ID
+- **Text fallbacks are normal** - they ensure the bot works everywhere
 
 ### Common Problems
 

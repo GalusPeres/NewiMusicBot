@@ -19,6 +19,7 @@ import {
 import logger from "./logger.js";
 import { isDeepStrictEqual as isEqual } from "node:util";
 import { safeEdit, safeDelete } from "./safeDiscord.js";
+import { createButtonRowWithEmojis } from "./emojiUtils.js";
 
 // OPTIMIZATION: Faster UI update intervals
 const MIN_UI_UPDATE_INTERVAL = 2_000;     // 2s instead of 3s for regular updates
@@ -28,37 +29,6 @@ const IMMEDIATE_UPDATE_INTERVAL = 100;    // 100ms for immediate feedback
 // Track UI state for optimization
 const uiUpdateQueue = new Map();
 const buttonCooldowns = new Map();
-
-// Helper – build the five control buttons with optimized state
-function createButtonRow(player) {
-  const prevDisabled = !(player.queue.previous && player.queue.previous.length);
-  const skipDisabled = !(player.queue.tracks   && player.queue.tracks.length);
-  
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("previous")
-      .setEmoji({ name: "previous", id: "1343186231856730172" })
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(prevDisabled),
-    new ButtonBuilder()
-      .setCustomId("playpause")
-      .setEmoji({ name: "playpause", id: "1342881662660509776" })
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId("skip")
-      .setEmoji({ name: "skip", id: "1342881629432971314" })
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(skipDisabled),
-    new ButtonBuilder()
-      .setCustomId("shuffle")
-      .setEmoji({ name: "shuffle", id: "1343989666826682489" })
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId("stop")
-      .setEmoji({ name: "stop", id: "1342881694893604967" })
-      .setStyle(ButtonStyle.Danger)
-  );
-}
 
 // OPTIMIZATION: ensureNowPlayingMessage with faster validation and recreation
 async function ensureNowPlayingMessage(player, channel) {
@@ -85,7 +55,7 @@ async function ensureNowPlayingMessage(player, channel) {
   try {
     player.nowPlayingMessage = await channel.send({
       embeds:     [embed],
-      components: [createButtonRow(player)]
+      components: [createButtonRowWithEmojis(player)]
     });
 
     registerCollectorOptimized(player, channel);
@@ -97,7 +67,7 @@ async function ensureNowPlayingMessage(player, channel) {
   }
 }
 
-// OPTIMIZATION: Optimized collector with faster response times and button cooldowns
+// OPTIMIZATION: Optimized collector with faster response times and NO TIMEOUT
 function registerCollectorOptimized(player, channel) {
   if (player.nowPlayingCollector) {
     player.nowPlayingCollector.stop();
@@ -106,8 +76,7 @@ function registerCollectorOptimized(player, channel) {
   if (!player.nowPlayingMessage) return;
 
   const collector = player.nowPlayingMessage.createMessageComponentCollector({
-    time: 3600000, // 1 hour timeout
-    idle: 300000   // 5 minutes idle timeout
+    // FIXED: No timeout - collector runs indefinitely to prevent button death
   });
   player.nowPlayingCollector = collector;
 
@@ -266,7 +235,7 @@ async function handleShuffleButton(player, interaction) {
 async function restoreOriginalUI(player, channel) {
   try {
     const emb = generateNowPlayingEmbed(player) || generateStoppedEmbed();
-    const row = createButtonRow(player);
+    const row = createButtonRowWithEmojis(player);
     await ensureNowPlayingMessage(player, channel);
     await safeEdit(player.nowPlayingMessage, { embeds: [emb], components: [row] });
   } catch (error) {
@@ -325,9 +294,7 @@ export async function sendOrUpdateNowPlayingUI(player, channel, fastUpdate = fal
   try {
     await safeEdit(
       msg,
-      { embeds: [embed], components: [createButtonRow(player)] },
-      false,
-      fastUpdate // Log fast updates for debugging
+      { embeds: [embed], components: [createButtonRowWithEmojis(player)] }
     );
   } catch (err) {
     if (err.code === 10008) {
@@ -343,28 +310,7 @@ export async function sendOrUpdateNowPlayingUI(player, channel, fastUpdate = fal
     }
   }
 
-  // OPTIMIZATION: Intelligent interval management based on player state
-  if (player.nowPlayingInterval) {
-    clearInterval(player.nowPlayingInterval);
-    player.nowPlayingInterval = null;
-  }
-  
-  // OPTIMIZATION: Adaptive update intervals based on playback state and config
-  if (player.playing || player.paused || player.queue.current) {
-    const configInterval = global.config?.uiUpdateInterval || MIN_UI_UPDATE_INTERVAL;
-    const updateInterval = player.playing ? configInterval : configInterval * 2;
-    
-    player.nowPlayingInterval = setInterval(() => {
-      if (player.playing || player.paused) {
-        updateNowPlaying(player);
-      } else {
-        clearInterval(player.nowPlayingInterval);
-        player.nowPlayingInterval = null;
-      }
-    }, updateInterval);
-    
-    logger.debug(`[nowPlayingManager] Started optimized update interval (${updateInterval}ms) for guild ${channel.guildId}`);
-  }
+  // FIXED: No interval setup here - handled by index.js to prevent multiple intervals
   
   return msg;
 }

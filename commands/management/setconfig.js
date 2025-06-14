@@ -12,6 +12,7 @@ import {
   PermissionsBitField
 } from "discord.js";
 import logger from "../../utils/logger.js";
+import { getDisplayEmoji } from "../../utils/emojiUtils.js";
 
 export default {
   name: "setconfig",
@@ -46,8 +47,8 @@ export default {
     if (!args[0]) {
       const currentProvider = config.defaultSearchPlatform || "ytsearch";
       const providerDisplay = {
-        ytsearch: { name: "YouTube", emoji: "<:yt:1343597758791024660>" },
-        ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
+        ytsearch: { name: "YouTube", emoji: getDisplayEmoji("yt", config) },
+        ytmsearch:{ name: "Music",   emoji: getDisplayEmoji("ytm", config) }
       }[currentProvider] || { name: currentProvider, emoji: "" };
 
       const overviewEmbed = new EmbedBuilder()
@@ -138,8 +139,8 @@ export default {
       // Interactive mode for changing the search provider
       const currentValue = config.defaultSearchPlatform || "ytsearch";
       const currentDisplay = {
-        ytsearch: { name: "YouTube", emoji: "<:yt:1343597758791024660>" },
-        ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
+        ytsearch: { name: "YouTube", emoji: getDisplayEmoji("yt", config) },
+        ytmsearch:{ name: "Music",   emoji: getDisplayEmoji("ytm", config) }
       }[currentValue] || { name: currentValue, emoji: "" };
 
       // Prompt user to select new provider
@@ -154,12 +155,16 @@ export default {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId("setconfigYT")
-          .setEmoji({ name: "yt", id: "1343597758791024660" })
+          .setEmoji(getDisplayEmoji("yt", config).startsWith("<") ? 
+            { name: "yt", id: config.emojiIds?.yt } : 
+            getDisplayEmoji("yt", config))
           .setLabel("YouTube")
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId("setconfigYTM")
-          .setEmoji({ name: "ytm", id: "1343595756740673586" })
+          .setEmoji(getDisplayEmoji("ytm", config).startsWith("<") ? 
+            { name: "ytm", id: config.emojiIds?.ytm } : 
+            getDisplayEmoji("ytm", config))
           .setLabel("Music")
           .setStyle(ButtonStyle.Secondary)
       );
@@ -192,8 +197,8 @@ export default {
           client.config = newConfig;
           global.config = newConfig;
           const updatedDisplay = {
-            ytsearch: { name: "YouTube", emoji: "<:yt:1343597758791024660>" },
-            ytmsearch:{ name: "Music",   emoji: "<:ytm:1343595756740673586>" }
+            ytsearch: { name: "YouTube", emoji: getDisplayEmoji("yt", newConfig) },
+            ytmsearch:{ name: "Music",   emoji: getDisplayEmoji("ytm", newConfig) }
           }[newConfig.defaultSearchPlatform] || { name: newConfig.defaultSearchPlatform, emoji: "" };
 
           // Confirmation embed

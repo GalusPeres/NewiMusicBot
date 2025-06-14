@@ -7,6 +7,7 @@ import fs from "fs/promises";
 import { fileURLToPath, pathToFileURL } from "url";
 import { dirname, join } from "path";
 import { sendOrUpdateNowPlayingUI } from "./utils/nowPlayingManager.js";
+import { updateNowPlaying } from "./utils/updateNowPlaying.js";
 import { generateStoppedEmbed } from "./utils/nowPlayingEmbed.js";
 import logger from "./utils/logger.js";
 import CleanupManager from "./utils/cleanupManager.js";
@@ -253,22 +254,36 @@ client.lavalink.on("trackStart", async (player, track) => {
   
   logger.debug(`Track started in guild ${player.guildId}: ${track.info.title}`);
   
-  // OPTIMIZATION: Reset UI state for clean start
-  if (player.nowPlayingInterval) {
-    clearInterval(player.nowPlayingInterval);
-    player.nowPlayingInterval = null;
-  }
-  
   // Reset UI tracking variables
   player._lastUIUpdate = null;
   player._lastEmbedData = null;
   player._pausedPosition = undefined;
   
-  // CRITICAL OPTIMIZATION: Immediate UI update instead of 1000ms delay
+  // CRITICAL OPTIMIZATION: Immediate UI update
   setImmediate(async () => {
     try {
       const ch = client.channels.cache.get(player.textChannelId);
-      if (ch) await sendOrUpdateNowPlayingUI(player, ch);
+      if (ch) {
+        await sendOrUpdateNowPlayingUI(player, ch, true); // fastUpdate = true
+        
+        // FIXED: Create interval if none exists OR if existing one is dead
+        if (!player.nowPlayingInterval || player.nowPlayingInterval._destroyed) {
+          // Clean up old interval if it exists
+          if (player.nowPlayingInterval) {
+            clearInterval(player.nowPlayingInterval);
+          }
+          
+          player.nowPlayingInterval = setInterval(() => {
+            if (player.playing || player.paused) {
+              updateNowPlaying(player);
+            } else {
+              clearInterval(player.nowPlayingInterval);
+              player.nowPlayingInterval = null;
+            }
+          }, config.uiUpdateInterval || 3000);
+          logger.debug(`[trackStart] Created update interval for guild ${player.guildId}`);
+        }
+      }
     } catch (err) {
       logger.error("Error updating Now Playing UI:", err);
     }

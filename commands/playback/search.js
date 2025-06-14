@@ -446,6 +446,9 @@ async function getOrCreatePlayerOptimized(client, message, userVC) {
       await player.setVolume(targetVolume, false);
     }
 
+    // FIXED: Always update textChannelId to current channel
+    player.textChannelId = message.channel.id;
+
     return player;
   } catch (error) {
     logger.error("[getOrCreatePlayerOptimized] Error:", error);
