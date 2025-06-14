@@ -119,10 +119,12 @@ By default, the bot uses clean text labels for buttons: **"|◀"**, **"▶||"**,
 
 ### Adding Your Own Custom Emojis
 
-**Step 1: Create Custom Emojis in Discord**
+**Step 1: Create Application Emojis**
 
-1. Go to your Discord Server Settings → Emoji
-2. Upload emoji images for each button:
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Select your bot application
+3. Click **"Emojis"** in the left sidebar
+4. Click **"Upload Emoji"** for each button:
    - `previous` - Previous track button
    - `playpause` - Play/pause button  
    - `skip` - Skip track button
@@ -133,9 +135,8 @@ By default, the bot uses clean text labels for buttons: **"|◀"**, **"▶||"**,
 
 **Step 2: Get Emoji IDs**
 
-1. In Discord, type `\:emoji_name:` (e.g., `\:previous:`)
-2. Discord will show: `<:previous:1234567890123456789>`
-3. Copy the number part: `1234567890123456789`
+After uploading each emoji, you'll see the **Emoji ID** in the list (right column).
+Copy these IDs for your config.
 
 **Step 3: Add to Config**
 
@@ -172,7 +173,7 @@ The bot will now use your custom emojis! If any emoji ID is invalid or missing, 
 | Shuffle | Your custom emoji | `Shuffle` |
 | Stop | Your custom emoji | `■` |
 
-**Note:** Custom emojis only work if the bot has access to them (same server or application). Text fallbacks ensure the bot works everywhere.
+**Note:** Application emojis work globally and don't require the bot to be in specific servers. Text fallbacks ensure the bot works everywhere.
 
 ## Lavalink Server
 
