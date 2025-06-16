@@ -21,6 +21,18 @@ import logger from "./logger.js";
 export async function safeEdit(message, payload, retried = false, log = false) {
   if (!message) return;
   try {
+    // Only compare if payload actually contains data to modify
+    if (payload.content !== undefined || payload.embeds !== undefined) {
+      const sameContent =
+        (payload.content === undefined || payload.content === message.content) &&
+        (payload.embeds === undefined ||
+          (payload.embeds.length === message.embeds.length &&
+           JSON.stringify(payload.embeds.map(e => e.toJSON?.() || e)) ===
+           JSON.stringify(message.embeds.map(e => e.toJSON()))));
+
+      if (sameContent) return message;
+    }
+
     const res = await message.edit(payload);
     if (log) logger.debug(`[safeEdit] message ${message.id} patched`);
     return res;

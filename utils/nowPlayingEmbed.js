@@ -18,7 +18,11 @@ try {
   const data = await fs.readFile(configPath, "utf-8");
   config = JSON.parse(data);
 } catch (err) {
-  logger.error("Loading config in nowPlayingEmbed.js", err);
+  if (typeof logger.error === 'function') {
+    logger.error("Loading config in nowPlayingEmbed.js", err);
+  } else {
+    console.error("Loading config in nowPlayingEmbed.js", err);
+  }
 }
 
 /**

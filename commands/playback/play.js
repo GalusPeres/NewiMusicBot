@@ -126,6 +126,8 @@ export default {
       // Start playback with optimized timing if idle
       if (!player.playing && !player.paused) {
         try {
+          player._requestTimestamp = Date.now();
+          if (client.perfMonitor) client.perfMonitor.recordRequest(message.guild.id);
           await player.play();
         } catch (playError) {
           logger.error("[play] Playback start error:", playError);
