@@ -2,6 +2,7 @@
 // Manages cleanup of stale resources to prevent memory leaks
 
 import logger from "./logger.js";
+import { resetPlayerUIOptimized } from "./nowPlayingManager.js";
 
 class CleanupManager {
   constructor(client) {
@@ -47,6 +48,22 @@ class CleanupManager {
         }
       }
     }
+
+    // Clean stale nowPlaying messages
+    if (this.client.lavalink?.players) {
+      for (const [, player] of this.client.lavalink.players) {
+        if (
+          player.nowPlayingMessage &&
+          now - player.nowPlayingMessage.createdTimestamp > maxAge
+        ) {
+          player.nowPlayingMessage.delete().catch(() => {});
+          player.nowPlayingMessage = null;
+          logger.debug(
+            `[CleanupManager] Removed stale nowPlaying message for guild ${player.guildId}`
+          );
+        }
+      }
+    }
   }
 
   cleanupDisconnectedPlayers() {
@@ -56,6 +73,7 @@ class CleanupManager {
       // Check if bot is still in the guild
       const guild = this.client.guilds.cache.get(guildId);
       if (!guild) {
+        resetPlayerUIOptimized(player);
         player.destroy();
         this.client.lavalink.players.delete(guildId);
         logger.info(`[CleanupManager] Removed player for deleted guild ${guildId}`);
@@ -65,6 +83,7 @@ class CleanupManager {
       // Check if bot is in a voice channel
       const voiceChannel = guild.channels.cache.get(player.voiceChannelId);
       if (!voiceChannel || !voiceChannel.members.has(this.client.user.id)) {
+        resetPlayerUIOptimized(player);
         player.destroy();
         this.client.lavalink.players.delete(guildId);
         logger.info(`[CleanupManager] Removed orphaned player for guild ${guildId}`);
