@@ -1,6 +1,6 @@
 config/config.json
-commands/text.js
-commands/snake.js
-commands/tetris.js
-aggregate.js
-projekt_zusammenfassung.txt
+__tests__/
+*.md
+.git/
+.gitignore
+.dockerignore
