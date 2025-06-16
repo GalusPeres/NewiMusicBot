@@ -437,6 +437,7 @@ This bot includes several performance optimizations:
 - **Buffer Optimization**: Enhanced Lavalink configuration for smooth playbook
 - **UI Responsiveness**: Fast button interactions and progress updates
 - **Memory Management**: Automatic cleanup of old cache entries and UI elements
+- **Performance Monitoring**: Built-in tracker logs memory usage and track start delays
 
 ## Requirements
 

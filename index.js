@@ -12,6 +12,7 @@ import { generateStoppedEmbed } from "./utils/nowPlayingEmbed.js";
 import logger from "./utils/logger.js";
 import CleanupManager from "./utils/cleanupManager.js";
 import LavalinkReconnectManager from "./utils/reconnectManager.js";
+import PerfMonitor from "./utils/perfMonitor.js";
 
 // Catch uncaught exceptions so the process doesn't die
 process.on("uncaughtException", (error) => {
@@ -70,6 +71,8 @@ global.config = config;
 // Initialize your custom managers
 client.cleanupManager   = new CleanupManager(client);
 client.reconnectManager = new LavalinkReconnectManager(client);
+client.perfMonitor      = new PerfMonitor(client);
+client.perfMonitor.startMemoryLogging();
 
 // -------------------- Command Loader --------------------
 client.commands = new Collection();
@@ -251,6 +254,11 @@ const trackStartTimes = new Map();
 client.lavalink.on("trackStart", async (player, track) => {
   const startTime = Date.now();
   trackStartTimes.set(player.guildId, startTime);
+
+  if (player._requestTimestamp) {
+    client.perfMonitor.recordTrackStart(player.guildId);
+    player._requestTimestamp = null;
+  }
   
   logger.debug(`Track started in guild ${player.guildId}: ${track.info.title}`);
   
