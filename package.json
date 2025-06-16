@@ -4,11 +4,21 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "dependencies": {
     "@discordjs/voice": "^0.18.0",
     "discord.js": "^14.18.0",
     "lavalink-client": "^2.4.7"
+  },
+  "devDependencies": {
+    "jest": "^29.6.2"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   }
 }
