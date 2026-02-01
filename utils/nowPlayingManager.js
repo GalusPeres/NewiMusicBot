@@ -10,7 +10,7 @@ import {
   generateNowPlayingEmbed,
   generateStoppedEmbed
 } from "./nowPlayingEmbed.js";
-import { updateNowPlaying } from "./updateNowPlaying.js";
+import { updateNowPlaying, priorityUpdate, isUpdateLocked, setUpdateLock } from "./updateNowPlaying.js";
 import {
   togglePlayPause,
   performSkip,
@@ -21,10 +21,9 @@ import { isDeepStrictEqual as isEqual } from "node:util";
 import { safeEdit, safeDelete } from "./safeDiscord.js";
 import { createButtonRowWithEmojis } from "./emojiUtils.js";
 
-// OPTIMIZATION: Faster UI update intervals
-const MIN_UI_UPDATE_INTERVAL = 2_000;     // 2s instead of 3s for regular updates
-const FAST_UPDATE_INTERVAL = 500;         // 500ms for button interactions
-const IMMEDIATE_UPDATE_INTERVAL = 100;    // 100ms for immediate feedback
+// UI update intervals
+const MIN_UI_UPDATE_INTERVAL = 2_000;     // 2s for regular updates
+const SKIP_UPDATE_DELAY = 300;            // 300ms delay for skip (wait for track change)
 
 // Track UI state for optimization
 const uiUpdateQueue = new Map();
@@ -110,16 +109,23 @@ function registerCollectorOptimized(player, channel) {
 
         case "confirmStop":
           clearTimeout(player.stopConfirmationTimeout);
+          player.stopConfirmationTimeout = null;  // FIX: Must set to null!
           await performStop(player);
           collector.stop();
           break;
 
         case "cancelStop":
           clearTimeout(player.stopConfirmationTimeout);
+          player.stopConfirmationTimeout = null;  // FIX: Must set to null!
           await restoreOriginalUI(player, interaction.channel);
           break;
 
         case "previous":
+          // FIX: Clear stop confirmation if active (user wants to continue)
+          if (player.stopConfirmationTimeout) {
+            clearTimeout(player.stopConfirmationTimeout);
+            player.stopConfirmationTimeout = null;
+          }
           await handlePreviousButton(player, interaction);
           break;
 
@@ -128,6 +134,11 @@ function registerCollectorOptimized(player, channel) {
           break;
 
         case "skip":
+          // FIX: Clear stop confirmation if active (user wants to continue)
+          if (player.stopConfirmationTimeout) {
+            clearTimeout(player.stopConfirmationTimeout);
+            player.stopConfirmationTimeout = null;
+          }
           await handleSkipButton(player, interaction);
           break;
 
@@ -149,22 +160,31 @@ function registerCollectorOptimized(player, channel) {
 
 // OPTIMIZATION: Individual button handlers with optimized timing
 async function handleStopButton(player, interaction) {
-  const confirmRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("confirmStop")
-      .setLabel("Confirm Stop")
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-      .setCustomId("cancelStop")
-      .setLabel("Cancel")
-      .setStyle(ButtonStyle.Secondary)
-  );
-  
-  await safeEdit(player.nowPlayingMessage, { components: [confirmRow] });
-  player.stopConfirmationTimeout = setTimeout(
-    () => restoreOriginalUI(player, interaction.channel),
-    10_000
-  );
+  const guildId = player.guildId;
+
+  // Set lock to prevent other updates from interfering
+  setUpdateLock(guildId, true);
+
+  try {
+    const confirmRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("confirmStop")
+        .setLabel("Confirm Stop")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("cancelStop")
+        .setLabel("Cancel")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    await safeEdit(player.nowPlayingMessage, { components: [confirmRow] });
+    player.stopConfirmationTimeout = setTimeout(
+      () => restoreOriginalUI(player, interaction.channel),
+      10_000
+    );
+  } finally {
+    setUpdateLock(guildId, false);
+  }
 }
 
 async function handlePreviousButton(player, interaction) {
@@ -176,11 +196,7 @@ async function handlePreviousButton(player, interaction) {
       }
       player.queue.current = prev;
       await player.play({ clientTrack: prev });
-      
-      // OPTIMIZATION: Fast UI update for immediate feedback
-      setTimeout(() => {
-        sendOrUpdateNowPlayingUI(player, interaction.channel, true);
-      }, IMMEDIATE_UPDATE_INTERVAL);
+      // NO UI update here - trackStart event handles it!
     }
   } catch (error) {
     logger.error("[handlePreviousButton] Error:", error);
@@ -190,11 +206,8 @@ async function handlePreviousButton(player, interaction) {
 async function handlePlayPauseButton(player, interaction) {
   try {
     await togglePlayPause(player);
-    
-    // OPTIMIZATION: Immediate UI update for play/pause state
-    setTimeout(() => {
-      sendOrUpdateNowPlayingUI(player, interaction.channel, true);
-    }, IMMEDIATE_UPDATE_INTERVAL);
+    // PlayPause needs immediate update (no trackStart event fires)
+    await priorityUpdate(player);
   } catch (error) {
     logger.error("[handlePlayPauseButton] Error:", error);
   }
@@ -203,11 +216,7 @@ async function handlePlayPauseButton(player, interaction) {
 async function handleSkipButton(player, interaction) {
   try {
     await performSkip(player);
-    
-    // OPTIMIZATION: Slightly delayed UI update for skip (wait for track change)
-    setTimeout(() => {
-      sendOrUpdateNowPlayingUI(player, interaction.channel, true);
-    }, FAST_UPDATE_INTERVAL);
+    // NO UI update here - trackStart event handles it!
   } catch (error) {
     logger.error("[handleSkipButton] Error:", error);
   }
@@ -215,17 +224,14 @@ async function handleSkipButton(player, interaction) {
 
 async function handleShuffleButton(player, interaction) {
   try {
-    // OPTIMIZATION: Efficient Fisher-Yates shuffle
+    // Efficient Fisher-Yates shuffle
     const tracks = player.queue.tracks;
     for (let i = tracks.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
     }
-    
-    // OPTIMIZATION: Fast UI update for shuffle
-    setTimeout(() => {
-      sendOrUpdateNowPlayingUI(player, interaction.channel, true);
-    }, IMMEDIATE_UPDATE_INTERVAL);
+    // Shuffle needs immediate update (no trackStart event fires)
+    await priorityUpdate(player);
   } catch (error) {
     logger.error("[handleShuffleButton] Error:", error);
   }
@@ -233,6 +239,14 @@ async function handleShuffleButton(player, interaction) {
 
 // OPTIMIZATION: Restore UI with faster response
 async function restoreOriginalUI(player, channel) {
+  const guildId = player.guildId;
+
+  // FIX: Clear the timeout reference (might be called from timeout itself)
+  player.stopConfirmationTimeout = null;
+
+  // FIX: Use lock to prevent race conditions
+  setUpdateLock(guildId, true);
+
   try {
     const emb = generateNowPlayingEmbed(player) || generateStoppedEmbed();
     const row = createButtonRowWithEmojis(player);
@@ -240,65 +254,76 @@ async function restoreOriginalUI(player, channel) {
     await safeEdit(player.nowPlayingMessage, { embeds: [emb], components: [row] });
   } catch (error) {
     logger.error("[restoreOriginalUI] Error:", error);
+  } finally {
+    setUpdateLock(guildId, false);
   }
 }
 
-// OPTIMIZATION: Enhanced main function with intelligent update scheduling
+// Main function for initial UI setup and non-button updates
 export async function sendOrUpdateNowPlayingUI(player, channel, fastUpdate = false) {
   const now = Date.now();
   const guildId = channel.guildId;
-  
-  // OPTIMIZATION: Adaptive throttling based on update type
-  let minInterval = MIN_UI_UPDATE_INTERVAL;
-  if (fastUpdate) {
-    minInterval = FAST_UPDATE_INTERVAL;
+
+  // Skip if locked (another update in progress)
+  if (isUpdateLocked(guildId) && !fastUpdate) {
+    return player.nowPlayingMessage;
   }
-  
-  // Check if we should throttle this update
+
+  // Throttle non-fast updates
   if (
+    !fastUpdate &&
     player._lastUIUpdate &&
-    now - player._lastUIUpdate < minInterval &&
-    !fastUpdate
+    now - player._lastUIUpdate < MIN_UI_UPDATE_INTERVAL
   ) {
-    // Queue update for later if not fast update
+    // Queue update for later
     if (!uiUpdateQueue.has(guildId)) {
       uiUpdateQueue.set(guildId, setTimeout(() => {
         uiUpdateQueue.delete(guildId);
         sendOrUpdateNowPlayingUI(player, channel, false);
-      }, minInterval));
+      }, MIN_UI_UPDATE_INTERVAL));
     }
     return player.nowPlayingMessage;
   }
-  
+
   // Clear any queued updates
   if (uiUpdateQueue.has(guildId)) {
     clearTimeout(uiUpdateQueue.get(guildId));
     uiUpdateQueue.delete(guildId);
   }
-  
+
+  // For fast updates, use priorityUpdate instead
+  if (fastUpdate) {
+    await priorityUpdate(player);
+    return player.nowPlayingMessage;
+  }
+
+  // Set lock for this update
+  setUpdateLock(guildId, true);
   player._lastUIUpdate = now;
 
-  // Ensure we have a message
-  const msg = await ensureNowPlayingMessage(player, channel);
-  if (!msg) return null;
-
-  const embed = generateNowPlayingEmbed(player);
-  const newData = embed?.toJSON() || {};
-
-  // OPTIMIZATION: Skip diff check for fast updates to ensure immediate response
-  if (!fastUpdate && player._lastEmbedData && isEqual(player._lastEmbedData, newData)) {
-    return msg;
-  }
-  player._lastEmbedData = newData;
-
   try {
+    // Ensure we have a message
+    const msg = await ensureNowPlayingMessage(player, channel);
+    if (!msg) return null;
+
+    const embed = generateNowPlayingEmbed(player);
+    const newData = embed?.toJSON() || {};
+
+    // Skip if content unchanged
+    if (player._lastEmbedData && isEqual(player._lastEmbedData, newData)) {
+      return msg;
+    }
+    player._lastEmbedData = newData;
+
     await safeEdit(
       msg,
       { embeds: [embed], components: [createButtonRowWithEmojis(player)] }
     );
+
+    return msg;
   } catch (err) {
     if (err.code === 10008) {
-      logger.warn(`[nowPlayingManager] UI message lost (10008) in guild ${channel.guildId}`);
+      logger.warn(`[nowPlayingManager] UI message lost (10008) in guild ${guildId}`);
       if (player.nowPlayingCollector) {
         player.nowPlayingCollector.stop();
         player.nowPlayingCollector = null;
@@ -308,11 +333,10 @@ export async function sendOrUpdateNowPlayingUI(player, channel, fastUpdate = fal
     } else {
       logger.error("sendOrUpdateNowPlayingUI Error:", err);
     }
+    return null;
+  } finally {
+    setUpdateLock(guildId, false);
   }
-
-  // FIXED: No interval setup here - handled by index.js to prevent multiple intervals
-  
-  return msg;
 }
 
 // OPTIMIZATION: Batch UI updates for multiple players (for performance)

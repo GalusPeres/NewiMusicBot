@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import { fileURLToPath, pathToFileURL } from "url";
 import { dirname, join } from "path";
 import { sendOrUpdateNowPlayingUI } from "./utils/nowPlayingManager.js";
-import { updateNowPlaying } from "./utils/updateNowPlaying.js";
+import { updateNowPlaying, priorityUpdate } from "./utils/updateNowPlaying.js";
 import { generateStoppedEmbed } from "./utils/nowPlayingEmbed.js";
 import logger from "./utils/logger.js";
 import CleanupManager from "./utils/cleanupManager.js";
@@ -160,20 +160,75 @@ client.on("messageCreate", async (msg) => {
   }
 });
 
-// -------------------- Voice State Logging --------------------
-client.on("voiceStateUpdate", (oldState, newState) => {
-  if (newState.id !== client.user.id) return;
-  const from = oldState.channelId || "None";
-  const to   = newState.channelId || "None";
-  logger.debug(`[VOICE] Moved from ${from} to ${to} in guild ${newState.guild.id}`);
+// -------------------- Voice State Handling --------------------
+client.on("voiceStateUpdate", async (oldState, newState) => {
+  const guildId = newState.guild.id;
 
-  // If kicked out of the channel, destroy the player
-  if (from !== "None" && to === "None") {
-    const player = client.lavalink?.getPlayer(newState.guild.id);
-    if (player) {
-      logger.info(`Player in guild ${newState.guild.id} was disconnected, cleaning up.`);
-      player.destroy();
-      client.lavalink.players.delete(newState.guild.id);
+  // Case 1: Bot was kicked/disconnected
+  if (newState.id === client.user.id) {
+    const from = oldState.channelId || "None";
+    const to   = newState.channelId || "None";
+    logger.debug(`[VOICE] Bot moved from ${from} to ${to} in guild ${guildId}`);
+
+    if (from !== "None" && to === "None") {
+      const player = client.lavalink?.getPlayer(guildId);
+      if (player) {
+        logger.info(`Player in guild ${guildId} was disconnected, cleaning up.`);
+        player.destroy();
+        client.lavalink.players.delete(guildId);
+      }
+    }
+    return;
+  }
+
+  // Case 2: Someone else left - check if bot is now alone
+  if (oldState.channelId && !newState.channelId) {
+    const player = client.lavalink?.getPlayer(guildId);
+    if (!player) return;
+
+    const botChannel = newState.guild.members.me?.voice?.channel;
+    if (!botChannel) return;
+
+    // Check if this was the channel the user left from
+    if (oldState.channelId !== botChannel.id) return;
+
+    // Count real members (excluding bots)
+    const realMembers = botChannel.members.filter(m => !m.user.bot).size;
+
+    if (realMembers === 0) {
+      logger.info(`[VOICE] Bot is alone in channel ${botChannel.id}, starting disconnect timer`);
+
+      // Give users 30 seconds to rejoin before disconnecting
+      const aloneTimer = setTimeout(async () => {
+        // Re-check if still alone
+        const currentChannel = newState.guild.members.me?.voice?.channel;
+        if (!currentChannel) return;
+
+        const stillAlone = currentChannel.members.filter(m => !m.user.bot).size === 0;
+        if (stillAlone) {
+          logger.info(`[VOICE] Disconnecting from guild ${guildId} - bot was alone for 30 seconds`);
+
+          try {
+            await player.destroy();
+            client.lavalink.players.delete(guildId);
+          } catch (err) {
+            logger.error(`[VOICE] Error disconnecting alone bot:`, err);
+          }
+        }
+      }, 30000); // 30 seconds grace period
+
+      // Store timer to cancel if someone rejoins
+      player._aloneTimer = aloneTimer;
+    }
+  }
+
+  // Case 3: Someone joined - cancel alone timer if active
+  if (!oldState.channelId && newState.channelId) {
+    const player = client.lavalink?.getPlayer(guildId);
+    if (player?._aloneTimer) {
+      clearTimeout(player._aloneTimer);
+      player._aloneTimer = null;
+      logger.debug(`[VOICE] Cancelled alone-disconnect timer for guild ${guildId}`);
     }
   }
 });
@@ -230,7 +285,7 @@ client.on("raw", d => {
   }
 });
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   logger.info(`Bot ${client.user.tag} is online.`);
   try {
     const initStart = Date.now();
@@ -267,35 +322,27 @@ client.lavalink.on("trackStart", async (player, track) => {
   player._lastEmbedData = null;
   player._pausedPosition = undefined;
   
-  // CRITICAL OPTIMIZATION: Immediate UI update
-  setImmediate(async () => {
-    try {
-      const ch = client.channels.cache.get(player.textChannelId);
-      if (ch) {
-        await sendOrUpdateNowPlayingUI(player, ch, true); // fastUpdate = true
-        
-        // FIXED: Create interval if none exists OR if existing one is dead
-        if (!player.nowPlayingInterval || player.nowPlayingInterval._destroyed) {
-          // Clean up old interval if it exists
-          if (player.nowPlayingInterval) {
-            clearInterval(player.nowPlayingInterval);
-          }
-          
-          player.nowPlayingInterval = setInterval(() => {
-            if (player.playing || player.paused) {
-              updateNowPlaying(player);
-            } else {
-              clearInterval(player.nowPlayingInterval);
-              player.nowPlayingInterval = null;
-            }
-          }, config.uiUpdateInterval || 3000);
-          logger.debug(`[trackStart] Created update interval for guild ${player.guildId}`);
-        }
-      }
-    } catch (err) {
-      logger.error("Error updating Now Playing UI:", err);
+  // OPTIMIZED: Direct priority update for fastest response
+  try {
+    await priorityUpdate(player);
+
+    // Create/reset interval for progress bar updates
+    if (player.nowPlayingInterval) {
+      clearInterval(player.nowPlayingInterval);
     }
-  });
+
+    player.nowPlayingInterval = setInterval(() => {
+      if (player.playing || player.paused) {
+        updateNowPlaying(player);
+      } else {
+        clearInterval(player.nowPlayingInterval);
+        player.nowPlayingInterval = null;
+      }
+    }, config.uiUpdateInterval || 3000);
+    logger.debug(`[trackStart] Created update interval for guild ${player.guildId}`);
+  } catch (err) {
+    logger.error("Error updating Now Playing UI:", err);
+  }
   
   // OPTIMIZATION: Set optimal volume
   if (player.volume !== (global.config.defaultVolume || 50)) {
@@ -341,6 +388,9 @@ function resetPlayerUI(player) {
   }
 }
 
+// Track auto-disconnect timers per guild
+const autoDisconnectTimers = new Map();
+
 client.lavalink.on("queueEnd", player => {
   const elapsed = Date.now() - (trackStartTimes.get(player.guildId) || 0);
   const wait    = elapsed < 2000 ? 2000 - elapsed : 0;
@@ -348,6 +398,44 @@ client.lavalink.on("queueEnd", player => {
     resetPlayerUI(player);
     trackStartTimes.delete(player.guildId);
   }, wait);
+
+  // AUTO-DISCONNECT: Start timer when queue ends
+  const disconnectDelay = config.autoDisconnectDelay || 300000; // 5 minutes default
+
+  // Clear any existing timer
+  if (autoDisconnectTimers.has(player.guildId)) {
+    clearTimeout(autoDisconnectTimers.get(player.guildId));
+  }
+
+  logger.debug(`[queueEnd] Starting auto-disconnect timer (${disconnectDelay/1000}s) for guild ${player.guildId}`);
+
+  const timer = setTimeout(async () => {
+    autoDisconnectTimers.delete(player.guildId);
+
+    // Check if still idle (no new tracks)
+    if (!player.playing && !player.paused && player.queue.tracks.length === 0) {
+      logger.info(`[autoDisconnect] Disconnecting from guild ${player.guildId} after inactivity`);
+
+      try {
+        // Destroy player and disconnect
+        await player.destroy();
+        client.lavalink.players.delete(player.guildId);
+      } catch (err) {
+        logger.error(`[autoDisconnect] Error disconnecting from guild ${player.guildId}:`, err);
+      }
+    }
+  }, disconnectDelay);
+
+  autoDisconnectTimers.set(player.guildId, timer);
+});
+
+// Cancel auto-disconnect when new track starts
+client.lavalink.on("trackStart", (player, track) => {
+  if (autoDisconnectTimers.has(player.guildId)) {
+    clearTimeout(autoDisconnectTimers.get(player.guildId));
+    autoDisconnectTimers.delete(player.guildId);
+    logger.debug(`[trackStart] Cancelled auto-disconnect timer for guild ${player.guildId}`);
+  }
 });
 
 client.lavalink.on("trackException", (player, track, payload) => {
