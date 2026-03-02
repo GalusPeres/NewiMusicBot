@@ -329,10 +329,12 @@ docker run -d \
   --name newimusicbot \
   --restart unless-stopped \
   -v ./config:/app/config \
-  galusperes/newimusicbot:latest
+  galusperes/newimusicbot:0.6.0
 ```
 
 **Docker Hub:** https://hub.docker.com/r/galusperes/newimusicbot
+
+`latest` is also published and points to the most recent stable release.
 
 **Important:** You must configure `config/config.json` with your Discord bot token and clientId before running the container. You also need to set up a Lavalink server separately.
 
