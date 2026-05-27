@@ -1,10 +1,6 @@
 import { jest } from '@jest/globals';
 
-jest.unstable_mockModule('fs', () => ({
-  default: { readFileSync: jest.fn(() => JSON.stringify({ logLevel: 'debug' })) },
-  readFileSync: jest.fn(() => JSON.stringify({ logLevel: 'debug' }))
-}));
-
+process.env.LOG_LEVEL = 'debug';
 const logger = (await import('../utils/logger.js')).default;
 
 describe('logger', () => {

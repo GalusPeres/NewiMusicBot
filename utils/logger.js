@@ -1,53 +1,40 @@
 // utils/logger.js
-// A centralized logger with configurable log levels, which loads the log level from config.json
+// A centralized logger with configurable log levels supplied via LOG_LEVEL.
+// Also pushes every emitted log into the api/logBuffer ring for the dashboard.
 
-import fs from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { push as pushLog } from "../api/logBuffer.js";
 
-// Determine the path to config.json similar to setconfig.js
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const configPath = join(__dirname, "..", "config", "config.json");
+const levels = { debug: 0, info: 1, warn: 2, error: 3 };
 
-let config = {};
-try {
-  // Read the configuration file synchronously
-  const data = fs.readFileSync(configPath, "utf-8");
-  config = JSON.parse(data);
-} catch (err) {
-  console.error("[LOGGER] Failed to load config:", err);
-  // If config cannot be loaded, set a default logLevel
-  config.logLevel = "error";
+function currentLevel() {
+  const configuredLevel = (global.config?.logLevel || process.env.LOG_LEVEL || "info").toLowerCase();
+  return levels[configuredLevel] !== undefined ? levels[configuredLevel] : levels.info;
 }
 
-// Define log levels with numerical priorities
-const levels = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3
-};
-
-// Use the log level from config or default to "error" (only errors will be logged)
-const currentLevel = levels[config.logLevel] !== undefined ? levels[config.logLevel] : levels.error;
-
-/**
- * Logs messages if the message level is greater than or equal to the current level.
- * Formats the output with the log level in uppercase.
- *
- * @param {string} level - The log level of the message (debug, info, warn, error)
- * @param {...any} args - The message or objects to log.
- */
-function log(level, ...args) {
-  if (levels[level] >= currentLevel) {
-    console.log(`[${level.toUpperCase()}]`, ...args);
+function formatArg(a) {
+  if (a instanceof Error) return a.stack || a.message;
+  if (typeof a === "object") {
+    try { return JSON.stringify(a); } catch { return String(a); }
   }
+  return String(a);
+}
+
+function inferSource(text) {
+  if (/lavalink|player|track|queue/i.test(text)) return "music";
+  if (/voice/i.test(text)) return "voice";
+  return "core";
+}
+
+function log(level, ...args) {
+  if (levels[level] < currentLevel()) return;
+  const line = args.map(formatArg).join(" ");
+  console.log(`[${level.toUpperCase()}]`, line);
+  pushLog({ level, src: inferSource(line), text: line });
 }
 
 export default {
-  debug: (...args) => log('debug', ...args),
-  info: (...args) => log('info', ...args),
-  warn: (...args) => log('warn', ...args),
-  error: (...args) => log('error', ...args),
+  debug: (...args) => log("debug", ...args),
+  info: (...args) => log("info", ...args),
+  warn: (...args) => log("warn", ...args),
+  error: (...args) => log("error", ...args),
 };

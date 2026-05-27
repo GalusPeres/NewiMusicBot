@@ -397,15 +397,17 @@ async function getOrCreatePlayerOptimized(client, message, userVC) {
   }
 }
 
-// Cleanup old cache entries periodically for memory management
-setInterval(() => {
+// Cleanup old cache entries periodically for memory management.
+// Do not keep short-lived test/utility processes alive solely for maintenance.
+const cacheCleanupTimer = setInterval(() => {
   const now = Date.now();
-  const maxCacheSize = global.config.maxCacheSize || 500;
+  const runtimeConfig = global.config || {};
+  const maxCacheSize = runtimeConfig.maxCacheSize || 500;
   const cacheEntries = Array.from(trackQualityCache.entries());
   
   // Remove old entries by timestamp
   for (const [key, data] of cacheEntries) {
-    if (now - data.timestamp > (global.config.cacheTTL * 1000 || 600000)) { // 10 minutes default
+    if (now - data.timestamp > (runtimeConfig.cacheTTL * 1000 || 600000)) { // 10 minutes default
       trackQualityCache.delete(key);
       logger.debug(`[cleanup] Removed expired cache entry: ${key}`);
     }
@@ -430,3 +432,4 @@ setInterval(() => {
     }
   }
 }, 120000); // Every 2 minutes
+cacheCleanupTimer.unref?.();

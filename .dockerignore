@@ -1,5 +1,7 @@
 config/config.json
 __tests__/
+node_modules/
+coverage/
 *.md
 .git/
 .gitignore

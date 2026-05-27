@@ -2,28 +2,7 @@
 // This module generates Discord embeds for the "Now Playing" status and when playback is stopped.
 
 import { EmbedBuilder } from "discord.js";
-import fs from "fs/promises";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
 import { formatTrackTitle } from "./formatTrack.js";
-import logger from "./logger.js";
-
-// Determine the path to the config file
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const configPath = join(__dirname, "../config/config.json");
-
-let config = {};
-try {
-  const data = await fs.readFile(configPath, "utf-8");
-  config = JSON.parse(data);
-} catch (err) {
-  if (typeof logger.error === 'function') {
-    logger.error("Loading config in nowPlayingEmbed.js", err);
-  } else {
-    console.error("Loading config in nowPlayingEmbed.js", err);
-  }
-}
 
 /**
  * Converts milliseconds to a MM:SS format string.

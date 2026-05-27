@@ -1,19 +1,12 @@
-# Verwende ein leichtgewichtiges Node.js-Image (z.B. Alpine)
-FROM node:24-alpine
-
-# Setze das Arbeitsverzeichnis im Container
+FROM node:22-alpine
 WORKDIR /app
 
-# Kopiere package.json und installiere die Abhängigkeiten
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --omit=dev
 
-# Kopiere den Rest des Codes
 COPY . .
 
-# Kopiere die Beispiel-Konfiguration in config/config.json
-# (Dies überschreibt nicht, wenn du später ein Volume mountest)
-RUN cp ./config/config.example.json ./config/config.json
+ENV NODE_ENV=production
+EXPOSE 3001
 
-# Starte den Bot
 CMD ["node", "index.js"]

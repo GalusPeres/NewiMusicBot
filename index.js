@@ -13,6 +13,8 @@ import logger from "./utils/logger.js";
 import CleanupManager from "./utils/cleanupManager.js";
 import LavalinkReconnectManager from "./utils/reconnectManager.js";
 import PerfMonitor from "./utils/perfMonitor.js";
+import { startApi } from "./api/server.js";
+import { loadConfig } from "./config/env.js";
 
 // Catch uncaught exceptions so the process doesn't die
 process.on("uncaughtException", (error) => {
@@ -28,19 +30,10 @@ process.on("unhandledRejection", (reason, promise) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load and validate config
-const cfgPath = join(__dirname, "config", "config.json");
-let config = {};
+// Runtime configuration is supplied by environment variables.
+let config;
 try {
-  const raw = await fs.readFile(cfgPath, "utf-8");
-  config = JSON.parse(raw);
-
-  const requiredFields = ["token", "clientId", "lavalinkHost", "lavalinkPort", "lavalinkPassword"];
-  for (const field of requiredFields) {
-    if (!config[field]) {
-      throw new Error(`Missing required config field: ${field}`);
-    }
-  }
+  config = loadConfig();
   logger.info("Configuration loaded and validated.");
 } catch (err) {
   logger.error("Failed to load configuration:", err);
@@ -240,9 +233,9 @@ client.lavalink = new LavalinkManager({
     port: config.lavalinkPort,
     authorization: config.lavalinkPassword,
     id: "optimized-node",
-    retryAmount: 3,                    // OPTIMIZED: Reduced from 5
-    retryDelay: 5_000,                // OPTIMIZED: Reduced from 10s
-    requestTimeout: 15_000,           // OPTIMIZED: Added timeout
+    retryAmount: config.lavalinkRetryCount || 3,
+    retryDelay: config.lavalinkRetryDelay || 5_000,
+    requestTimeout: config.lavalinkTimeout || 15_000,
     secure: false
   }],
   // OPTIMIZATION: Faster shard sender
@@ -261,7 +254,7 @@ client.lavalink = new LavalinkManager({
     heartBeatInterval: 45_000         // Longer intervals
   },
   queueOptions: {
-    maxPreviousTracks: 50             // OPTIMIZED: Reduced from 1000
+    maxPreviousTracks: config.maxPreviousTracks || 50
   },
   playerOptions: {
     defaultSearchPlatform: config.defaultSearchPlatform || "ytsearch",
@@ -291,14 +284,24 @@ client.once("clientReady", async () => {
     const initStart = Date.now();
     await client.lavalink.init(client.user);
     const initTime = Date.now() - initStart;
-    
+
     client.lavalinkReady = true;
     client.reconnectManager.initialize();
     client.cleanupManager.start();
-    
+
     logger.info(`Lavalink initialized successfully in ${initTime}ms`);
   } catch (err) {
     logger.error("Lavalink init failed:", err);
+  }
+
+  if (process.env.BOT_API_TOKEN) {
+    try {
+      client.apiServer = startApi(client);
+    } catch (err) {
+      logger.error("Failed to start dashboard HTTP API:", err);
+    }
+  } else {
+    logger.info("Dashboard HTTP API disabled (BOT_API_TOKEN is not configured).");
   }
 });
 
@@ -470,8 +473,11 @@ async function gracefulShutdown() {
   logger.info("Initiating graceful shutdown...");
   try {
     client.cleanupManager.stop();
+    if (client.apiServer) {
+      await new Promise((resolve) => client.apiServer.close(resolve));
+    }
     for (const player of client.lavalink.players.values()) {
-      await player.destroy().catch(err => 
+      await player.destroy().catch(err =>
         logger.error(`Error destroying player for guild ${player.guildId}:`, err)
       );
     }

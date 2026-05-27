@@ -417,8 +417,10 @@ function cleanupUIResources() {
   }
 }
 
-// OPTIMIZATION: Periodic cleanup for memory management
-setInterval(cleanupUIResources, 60000); // Every minute
+// OPTIMIZATION: Periodic cleanup for memory management. This must not keep
+// test/utility processes alive after all useful work has completed.
+const cleanupInterval = setInterval(cleanupUIResources, 60000); // Every minute
+cleanupInterval.unref?.();
 
 // Cleanup on shutdown
 process.on('exit', cleanupUIResources);

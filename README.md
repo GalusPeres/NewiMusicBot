@@ -1,5 +1,11 @@
 # NewiMusicBot - Setup Guide
 
+> This workspace version uses environment variables for bot configuration.
+> See `.env.example` for the variables to enter in its separate container.
+> Botboard is optional: set `BOT_API_TOKEN` only when its HTTP API should be
+> exposed to the dashboard. The older config-file instructions below describe
+> the upstream version.
+
 A high-performance Discord music bot with interactive controls, progress bars, and optimized streaming.
 
 ## Features
