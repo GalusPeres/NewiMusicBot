@@ -2,7 +2,9 @@ import express from "express";
 import cors from "cors";
 import { bearerAuth } from "./auth.js";
 import statusRoutes from "./routes/status.js";
+import manifestRoutes from "./routes/manifest.js";
 import guildsRoutes from "./routes/guilds.js";
+import statsRoutes from "./routes/stats.js";
 import playerRoutes from "./routes/player.js";
 import settingsRoutes from "./routes/settings.js";
 import logsRoutes from "./routes/logs.js";
@@ -18,8 +20,10 @@ export function startApi(client) {
   app.use(express.json({ limit: "1mb" }));
   app.use(bearerAuth);
 
+  app.use("/api/manifest", manifestRoutes(client));
   app.use("/api/status", statusRoutes(client));
   app.use("/api/guilds", guildsRoutes(client));
+  app.use("/api/stats", statsRoutes(client));
   app.use("/api/guilds/:guildId/player", playerRoutes(client));
   app.use("/api/settings", settingsRoutes(client));
   app.use("/api/logs", logsRoutes());

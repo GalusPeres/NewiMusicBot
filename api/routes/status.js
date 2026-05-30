@@ -17,7 +17,14 @@ export default function statusRoutes(client) {
       name: pkg.name,
       version: pkg.version,
       bot: client.user
-        ? { id: client.user.id, tag: client.user.tag, avatar: client.user.displayAvatarURL?.() }
+        ? {
+            id: client.user.id,
+            tag: client.user.tag,
+            username: client.user.username,
+            displayName: client.user.username,
+            applicationName: client.application?.name || null,
+            avatar: client.user.displayAvatarURL?.(),
+          }
         : null,
       ready: !!client.lavalinkReady,
       uptimeMs: Date.now() - startedAt,
