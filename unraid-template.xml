@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>newimusicbot</Name>
+  <Repository>galusperes/newimusicbot:latest</Repository>
+  <Registry>https://hub.docker.com/r/galusperes/newimusicbot</Registry>
+  <Network>host</Network>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Overview>Discord Music Bot powered by Lavalink. Plays music from YouTube and Spotify in voice channels. Managed via Botboard dashboard.</Overview>
+  <Category>Tools:</Category>
+  <WebUI/>
+  <Icon>https://raw.githubusercontent.com/GalusPeres/NewiMusicBot/main/assets/icon.png</Icon>
+  <ExtraParams/>
+  <DateInstalled/>
+
+  <!-- Volumes -->
+  <Config Name="Config" Target="/app/config" Default="/mnt/user/appdata/newimusicbot/" Mode="rw" Description="Persistent config and data directory." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/newimusicbot/</Config>
+
+  <!-- Environment Variables -->
+  <Config Name="Discord Token" Target="DISCORD_TOKEN" Default="" Description="Your Discord bot token from the Discord Developer Portal." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Discord Client ID" Target="DISCORD_CLIENT_ID" Default="" Description="Your Discord application client ID." Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Command Prefix" Target="COMMAND_PREFIX" Default="." Description="Prefix for bot commands." Type="Variable" Display="always" Required="false" Mask="false">.</Config>
+  <Config Name="Lavalink Host" Target="LAVALINK_HOST" Default="localhost" Description="IP or hostname of your Lavalink instance." Type="Variable" Display="always" Required="true" Mask="false">localhost</Config>
+  <Config Name="Lavalink Port" Target="LAVALINK_PORT" Default="2333" Description="Port of your Lavalink instance." Type="Variable" Display="always" Required="false" Mask="false">2333</Config>
+  <Config Name="Lavalink Password" Target="LAVALINK_PASSWORD" Default="" Description="Password for your Lavalink instance." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Default Volume" Target="DEFAULT_VOLUME" Default="40" Description="Default playback volume (0-100)." Type="Variable" Display="always" Required="false" Mask="false">40</Config>
+  <Config Name="Default Search Platform" Target="DEFAULT_SEARCH_PLATFORM" Default="ytsearch" Description="Default search platform: ytsearch or scsearch." Type="Variable" Display="always" Required="false" Mask="false">ytsearch</Config>
+  <Config Name="Auto Disconnect Delay (ms)" Target="AUTO_DISCONNECT_DELAY_MS" Default="300000" Description="Time in ms before bot disconnects when idle." Type="Variable" Display="always" Required="false" Mask="false">300000</Config>
+  <Config Name="Log Level" Target="LOG_LEVEL" Default="info" Description="Logging level: error, warn, info, debug." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+  <Config Name="Botboard API Token" Target="BOT_API_TOKEN" Default="" Description="Shared secret between this bot and Botboard. Must match BOT_API_TOKEN in Botboard." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Botboard API Port" Target="BOT_API_PORT" Default="3001" Description="Port the bot API listens on for Botboard." Type="Variable" Display="advanced" Required="false" Mask="false">3001</Config>
+</Container>
