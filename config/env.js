@@ -4,7 +4,7 @@ import fs from "node:fs";
 // process.env before the bot config is read. Values in the file override
 // the container ENV so Botboard-saved settings survive restarts.
 export function loadEnvFile() {
-  const filePath = process.env.BOT_ENV_FILE || "/data/.env";
+  const filePath = process.env.BOT_ENV_FILE || "/app/config/.env";
   try {
     const content = fs.readFileSync(filePath, "utf8");
     for (const line of content.split(/\r?\n/)) {
