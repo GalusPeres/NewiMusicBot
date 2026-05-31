@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 function envFilePath() {
-  return process.env.BOT_ENV_FILE || path.join(process.cwd(), ".env");
+  return process.env.BOT_ENV_FILE || "/app/data/.env";
 }
 
 function encodeValue(value) {
