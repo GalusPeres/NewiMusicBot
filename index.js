@@ -14,7 +14,8 @@ import CleanupManager from "./utils/cleanupManager.js";
 import LavalinkReconnectManager from "./utils/reconnectManager.js";
 import PerfMonitor from "./utils/perfMonitor.js";
 import { startApi } from "./api/server.js";
-import { loadConfig } from "./config/env.js";
+import { loadConfig, loadEnvFile } from "./config/env.js";
+loadEnvFile();
 
 // Catch uncaught exceptions so the process doesn't die
 process.on("uncaughtException", (error) => {
