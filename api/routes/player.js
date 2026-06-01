@@ -38,10 +38,16 @@ export default function playerRoutes(client) {
           selfDeaf: true,
           volume: client.config.defaultVolume || 50,
         });
-      } else {
-        player.voiceChannelId = voiceChannel.id;
+        await player.connect();
+      } else if (player.voiceChannelId !== voiceChannel.id) {
+        // Use changeVoiceState to properly move channels — player.connect() reads
+        // from player.options.voiceChannelId (not the property) so direct assignment
+        // has no effect and the bot stays in the old channel.
+        await player.changeVoiceState({ voiceChannelId: voiceChannel.id });
+      } else if (!player.connected) {
+        await player.connect();
       }
-      await player.connect();
+      // else: already in the right channel and connected — nothing to do
       res.json(serializePlayer(player, client));
     } catch (err) {
       logger.error("[api] connect error:", err);
@@ -94,8 +100,7 @@ export default function playerRoutes(client) {
         });
         await player.connect();
       } else if (player.voiceChannelId !== voiceChannel.id) {
-        player.voiceChannelId = voiceChannel.id;
-        await player.connect();
+        await player.changeVoiceState({ voiceChannelId: voiceChannel.id });
       }
 
       const isUrl = /^https?:\/\//.test(query);

@@ -267,7 +267,7 @@ client.lavalink = new LavalinkManager({
       destroyPlayer: false
     },
     // OPTIMIZATION: Audio processing optimizations
-    applyVolumeAsFilter: false,
+    applyVolumeAsFilter: true,
     instaUpdateFiltersFix: true
   }
 });
